@@ -1,0 +1,20 @@
+skip-check: []
+checks:
+  - id: CKV_AWS_CUSTOM_001
+    name: S3 buckets must block public access
+    risk: HIGH
+    match: terraform
+    cond_type: attribute
+    resource_types: [aws_s3_bucket_public_access_block]
+    attribute: block_public_policy
+    operator: equals
+    value: true
+  - id: CKV_AWS_CUSTOM_002
+    name: S3 buckets must enforce encryption
+    risk: HIGH
+    match: terraform
+    cond_type: attribute
+    resource_types: [aws_s3_bucket_server_side_encryption_configuration]
+    attribute: rule[*].apply_server_side_encryption_by_default.sse_algorithm
+    operator: equals
+    value: AES256
