@@ -1,0 +1,53 @@
+name: plan-validate
+on:
+  pull_request:
+    paths:
+      - "envs/**"
+      - "modules/**"
+      - ".tflint.hcl"
+      - ".pre-commit-config.yaml"
+      - "infracost.yml"
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+jobs:
+  plan-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.5 }
+      - uses: pre-commit/action@v3.0.1
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-west-1
+      - name: Terraform Init & Validate (dev)
+        working-directory: envs/dev
+        run: |
+          terraform init -input=false
+          terraform validate -no-color
+      - name: TFLint
+        run: tflint --no-color || true
+      - name: Tfsec
+        run: tfsec . || true
+      - name: Checkov
+        run: checkov -d . || true
+      - name: Terraform Plan (dev)
+        working-directory: envs/dev
+        run: |
+          terraform plan -input=false -no-color -out=tfplan
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev
+          path: envs/dev/tfplan
+      - name: Comment summary
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            **Plan (dev) completed.**
+            - Terraform validated, linters ran.
+            - Plan artifact uploaded (tfplan-dev).
