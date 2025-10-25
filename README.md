@@ -14,6 +14,41 @@ A modern data lakehouse implementation on AWS featuring:
 
 See [docs/architecture.md](docs/architecture.md) for detailed architecture.
 
+## Status
+
+### Data Lake Buckets
+
+The following S3 buckets are deployed for each environment:
+
+| Tier      | Purpose                                   | Bucket Naming Pattern | Features                                    |
+| --------- | ----------------------------------------- | --------------------- | ------------------------------------------- |
+| 🥉 Raw    | Ingestion layer for raw, unprocessed data | `{prefix}-raw`        | Versioning, KMS encryption, lifecycle rules |
+| 🥈 Silver | Cleansed and validated data               | `{prefix}-silver`     | Versioning, KMS encryption, lifecycle rules |
+| 🥇 Gold   | Curated, business-ready data              | `{prefix}-gold`       | Versioning, KMS encryption, lifecycle rules |
+
+**Example for dev environment:** `dp-dev-{account-id}-raw`, `dp-dev-{account-id}-silver`, `dp-dev-{account-id}-gold`
+
+#### Bucket Features
+
+All data lake buckets include:
+
+- **Encryption**: AWS KMS encryption at rest with automatic key rotation
+- **Versioning**: Enabled for data recovery and audit trails
+- **Access Logging**: Centralized logging to observability bucket
+- **Public Access**: Blocked by default for security
+- **Lifecycle Management**:
+  - Transition to Standard-IA after 30 days
+  - Transition to Glacier after 180 days
+  - Expiration after 730 days (2 years)
+- **Security**: TLS-only access enforced via bucket policy
+
+To view bucket names after deployment:
+
+```bash
+cd envs/dev
+terraform output
+```
+
 ## Prerequisites
 
 - Terraform >= 1.8.0
