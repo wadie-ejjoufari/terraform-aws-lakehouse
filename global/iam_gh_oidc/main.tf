@@ -12,9 +12,32 @@ locals {
     Version = "2012-10-17",
     Statement = [
       { Effect = "Allow", Action = ["sts:GetCallerIdentity"], Resource = "*" },
+      # Terraform state backend access
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:PutObject"
+        ],
+        Resource = [
+          "arn:aws:s3:::tf-state-*",
+          "arn:aws:s3:::tf-state-*/*"
+        ]
+      },
+      # DynamoDB state locking
+      {
+        Effect = "Allow",
+        Action = [
+          "dynamodb:DescribeTable",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem"
+        ],
+        Resource = "arn:aws:dynamodb:*:*:table/tf-locks"
+      },
+      # Read-only access for planning
       { Effect = "Allow", Action = [
-        "s3:List*", "s3:Get*",
-        "dynamodb:List*", "dynamodb:Describe*", "dynamodb:GetItem",
         "kms:List*", "kms:Describe*",
         "ec2:Describe*",
         "logs:Describe*", "logs:List*", "cloudwatch:Describe*",
