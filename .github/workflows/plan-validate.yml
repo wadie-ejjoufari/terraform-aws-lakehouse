@@ -98,19 +98,79 @@ jobs:
         run: checkov -d . || true
 
       - name: Terraform Plan (dev)
+        id: plan
         working-directory: envs/dev
-        run: terraform plan -input=false -no-color -out=tfplan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -out=tfplan > plan_output.txt 2>&1
+          PLAN_EXIT_CODE=$?
+          echo "exitcode=${PLAN_EXIT_CODE}" >> $GITHUB_OUTPUT
+
+          # Show plan output
+          cat plan_output.txt
+
+          # Save plan summary for PR comment
+          if [ $PLAN_EXIT_CODE -eq 0 ]; then
+            echo "result=No changes" >> $GITHUB_OUTPUT
+          elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+            echo "result=Changes detected" >> $GITHUB_OUTPUT
+          else
+            echo "result=Plan failed" >> $GITHUB_OUTPUT
+          fi
+
+          # Don't fail the job for exit code 2 (changes)
+          if [ $PLAN_EXIT_CODE -eq 2 ]; then
+            exit 0
+          fi
+          exit $PLAN_EXIT_CODE
 
       - name: Upload plan artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tfplan-dev
-          path: envs/dev/tfplan
+          path: |
+            envs/dev/tfplan
+            envs/dev/plan_output.txt
 
-      - name: Comment summary
+      - name: Read plan output
+        id: plan_output
+        if: always()
+        working-directory: envs/dev
+        run: |
+          if [ -f plan_output.txt ]; then
+            # Escape and format plan output for GitHub
+            PLAN_OUTPUT=$(cat plan_output.txt | head -n 100)
+            echo "plan<<EOF" >> $GITHUB_OUTPUT
+            echo "$PLAN_OUTPUT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment Plan Output
         uses: marocchino/sticky-pull-request-comment@v2
+        if: always()
         with:
+          header: terraform-plan-dev
           message: |
-            **Plan (dev) completed.**
-            - Terraform validated, linters ran.
-            - Plan artifact uploaded (tfplan-dev).
+            ## Terraform Plan (dev)
+
+            **Result**: ${{ steps.plan.outputs.result }}
+            **Exit Code**: `${{ steps.plan.outputs.exitcode }}`
+
+            <details>
+            <summary>Show Plan Output (click to expand)</summary>
+
+            ```
+            ${{ steps.plan_output.outputs.plan }}
+            ```
+
+            </details>
+
+            ---
+
+            **Validation Steps:**
+            - Terraform initialized and validated
+            - TFLint executed
+            - Tfsec executed
+            - Checkov executed
+            - Plan artifact: `tfplan-dev`

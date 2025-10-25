@@ -38,7 +38,7 @@ locals {
       },
       # Read-only access for planning
       { Effect = "Allow", Action = [
-        "kms:List*", "kms:Describe*", "kms:GetKeyRotationStatus",
+        "kms:List*", "kms:Describe*", "kms:GetKeyRotationStatus", "kms:GetKeyPolicy",
         "ec2:Describe*",
         "logs:Describe*", "logs:List*", "cloudwatch:Describe*",
         "glue:Get*", "glue:List*", "athena:Get*", "athena:List*",
