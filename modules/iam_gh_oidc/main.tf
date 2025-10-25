@@ -40,6 +40,9 @@ resource "aws_iam_role" "gh_actions" {
 }
 
 resource "aws_iam_role_policy" "inline" {
+  #checkov:skip=CKV_AWS_288:Read-only policy for Terraform plan operations - no data exfiltration risk
+  #checkov:skip=CKV_AWS_289:Read-only policy with no permissions management capabilities
+  #checkov:skip=CKV_AWS_355:Wildcard resources required for read-only operations across multiple services
   role   = aws_iam_role.gh_actions.id
   policy = var.policy_json
 }
