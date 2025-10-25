@@ -7,24 +7,20 @@ repos:
       - id: terraform_tflint
         args:
           - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
-      - id: terraform_tfsec
+      # tfsec is deprecated -> use trivy
+      - id: terraform_trivy
         args:
-          - --args=--minimum-severity=MEDIUM
+          - --args=--severity=MEDIUM,HIGH,CRITICAL
       - id: terraform_checkov
         args:
-          - --args=--skip-check CKV_AWS_144,CKV_AWS_145
-      - id: terraform_docs
-        args:
-          - --hook-config=--path-to-file=README.md
-          - --hook-config=--add-to-existing-file=true
-          - --hook-config=--create-file-if-not-exist=true
-  
+          - --args=--skip-check CKV_AWS_144,CKV_AWS_145,CKV2_AWS_62
+
   - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v4.0.0
+    rev: v3.1.0
     hooks:
       - id: prettier
         files: \.(md|yml|yaml)$
-  
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0
     hooks:

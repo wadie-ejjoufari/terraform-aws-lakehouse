@@ -5,6 +5,7 @@ AWS Data Lakehouse infrastructure as code using Terraform.
 ## Architecture
 
 A modern data lakehouse implementation on AWS featuring:
+
 - **S3** for data lake storage (Bronze/Silver/Gold layers)
 - **AWS Glue** for data catalog and ETL
 - **Amazon Athena** for SQL analytics
@@ -45,12 +46,39 @@ Replace `<ACCOUNT_ID>` in each `envs/*/backend.hcl` with your AWS account ID.
 cd envs/dev
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars as needed
-terraform init
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
 
 ## Development Setup
+
+### Install the required CLIs
+
+```bash
+# --- TFLint ---
+curl -sSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+sudo cp .tflint.hcl /usr/local/bin
+tflint --version
+
+# --- Trivy (replaces tfsec) ---
+sudo apt-get update
+sudo apt-get install -y wget gnupg lsb-release
+wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+sudo apt-get update && sudo apt-get install -y trivy
+trivy --version
+
+# --- Checkov ---
+pipx install checkov
+checkov --version
+```
+
+### Initialize TFLint plugins
+
+```bash
+tflint --init
+```
 
 ### Install Pre-commit Hooks
 
@@ -77,6 +105,8 @@ tflint --config=../../.tflint.hcl
 
 ```bash
 # Install infracost: https://www.infracost.io/docs/
+# Downloads the CLI based on your OS/arch and puts it in /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
 infracost breakdown --path=envs/dev
 infracost diff --path=envs/dev
 ```
@@ -99,11 +129,11 @@ infracost diff --path=envs/dev
 
 ## Environments
 
-| Environment | AWS Region | Purpose |
-|-------------|------------|---------|
-| dev         | eu-west-1  | Development and testing |
-| stage       | eu-west-1  | Pre-production validation |
-| prod        | eu-west-1  | Production workloads |
+| Environment | AWS Region | Purpose                   |
+| ----------- | ---------- | ------------------------- |
+| dev         | eu-west-3  | Development and testing   |
+| stage       | eu-west-3  | Pre-production validation |
+| prod        | eu-west-3  | Production workloads      |
 
 ## Documentation
 

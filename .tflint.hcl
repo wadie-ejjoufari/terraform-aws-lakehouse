@@ -11,7 +11,7 @@ plugin "terraform" {
 
 config {
   format = "compact"
-  
+
   # Disable specific rules if needed
   # disabled_by_default = false
 }

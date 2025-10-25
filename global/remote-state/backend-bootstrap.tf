@@ -10,7 +10,7 @@ terraform {
 
 provider "aws" {
   region = var.region
-  
+
   default_tags {
     tags = {
       Project     = "terraform-aws-lakehouse"
@@ -21,10 +21,66 @@ provider "aws" {
   }
 }
 
+# KMS key for S3 bucket encryption
+resource "aws_kms_key" "tf_state" {
+  description             = "KMS key for Terraform state bucket encryption"
+  deletion_window_in_days = 10
+  enable_key_rotation     = true
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions"
+        Effect = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::${var.account_id}:root"
+        }
+        Action   = "kms:*"
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow S3 to use the key"
+        Effect = "Allow"
+        Principal = {
+          Service = "s3.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow DynamoDB to use the key"
+        Effect = "Allow"
+        Principal = {
+          Service = "dynamodb.amazonaws.com"
+        }
+        Action = [
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:CreateGrant"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = "Terraform State Encryption Key"
+  }
+}
+
+resource "aws_kms_alias" "tf_state" {
+  name          = "alias/terraform-state"
+  target_key_id = aws_kms_key.tf_state.key_id
+}
+
 resource "aws_s3_bucket" "tf_state" {
   bucket        = "tf-state-${var.account_id}-${var.region}"
   force_destroy = false
-  
+
   tags = {
     Name = "Terraform State Bucket"
   }
@@ -41,7 +97,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "sse" {
   bucket = aws_s3_bucket.tf_state.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.tf_state.arn
     }
   }
 }
@@ -62,11 +119,21 @@ resource "aws_s3_bucket_lifecycle_configuration" "tf_state" {
     id     = "expire-old-versions"
     status = "Enabled"
 
+    # Required since AWS provider v5.x: must include exactly one of filter or prefix
+    filter {
+      prefix = "" # applies to all objects
+    }
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
+
 
 # Add logging for audit trail
 resource "aws_s3_bucket_logging" "tf_state" {
@@ -79,6 +146,27 @@ resource "aws_s3_bucket_logging" "tf_state" {
 resource "aws_s3_bucket" "tf_state_logs" {
   bucket        = "tf-state-logs-${var.account_id}-${var.region}"
   force_destroy = false
+
+  tags = {
+    Name = "Terraform State Logs Bucket"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.tf_state_logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs_sse" {
+  bucket = aws_s3_bucket.tf_state_logs.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.tf_state.arn
+    }
+  }
 }
 
 resource "aws_s3_bucket_public_access_block" "logs_pab" {
@@ -96,27 +184,43 @@ resource "aws_s3_bucket_lifecycle_configuration" "logs" {
     id     = "expire-logs"
     status = "Enabled"
 
+    # Required: choose filter (preferred) or legacy prefix
+    filter {
+      prefix = "" # match all objects
+    }
+
     expiration {
       days = 30
     }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
   }
 }
+
 
 resource "aws_dynamodb_table" "locks" {
   name         = "tf-locks"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "LockID"
-  
+
   attribute {
     name = "LockID"
     type = "S"
   }
-  
+
+  # Enable server-side encryption with KMS
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.tf_state.arn
+  }
+
   # Enable point-in-time recovery
   point_in_time_recovery {
     enabled = true
   }
-  
+
   tags = {
     Name = "Terraform State Locks"
   }
