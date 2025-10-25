@@ -1,4 +1,4 @@
-region               = "eu-west-1"
+region               = "eu-west-3"
 environment          = "dev"
 project_name         = "lakehouse"
 data_bucket_prefix   = "datalake"
