@@ -33,6 +33,33 @@ resource "aws_kms_key" "s3" {
   deletion_window_in_days = 10
   enable_key_rotation     = true
   tags                    = local.tags
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions",
+        Effect = "Allow",
+        Principal = {
+          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+        },
+        Action   = "kms:*",
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow S3 to use the key",
+        Effect = "Allow",
+        Principal = {
+          Service = "s3.amazonaws.com"
+        },
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_kms_alias" "s3" {
