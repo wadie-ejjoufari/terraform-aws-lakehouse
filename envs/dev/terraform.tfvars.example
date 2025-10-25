@@ -1,0 +1,6 @@
+region               = "eu-west-3"
+environment          = "dev"
+project_name         = "lakehouse"
+data_bucket_prefix   = "datalake"
+enable_glue_catalog  = true
+enable_athena        = true
