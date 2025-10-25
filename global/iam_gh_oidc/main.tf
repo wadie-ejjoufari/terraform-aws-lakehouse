@@ -38,11 +38,15 @@ locals {
       },
       # Read-only access for planning
       { Effect = "Allow", Action = [
-        "kms:List*", "kms:Describe*",
+        "kms:List*", "kms:Describe*", "kms:GetKeyRotationStatus",
         "ec2:Describe*",
         "logs:Describe*", "logs:List*", "cloudwatch:Describe*",
         "glue:Get*", "glue:List*", "athena:Get*", "athena:List*",
-        "iam:List*", "iam:Get*"
+        "iam:List*", "iam:Get*",
+        "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning",
+        "s3:GetBucketLogging", "s3:GetLifecycleConfiguration",
+        "s3:GetBucketPolicy", "s3:GetEncryptionConfiguration",
+        "s3:GetBucketTagging", "s3:GetBucketLocation"
       ], Resource = "*" }
     ]
   })
