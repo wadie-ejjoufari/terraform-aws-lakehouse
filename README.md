@@ -36,11 +36,26 @@ terraform apply
 
 Note the outputs - you'll need them for environment backend configuration.
 
-### 2. Update Environment Backend Configurations
+### 2. Configure GitHub OIDC for CI/CD
+
+Set up AWS IAM OIDC provider and role for GitHub Actions:
+
+```bash
+cd global/iam_gh_oidc
+terraform init
+terraform apply \
+  -var "region=eu-west-3" \
+  -var "repo=<your-github-org>/<your-repo-name>" \
+  -var "role_name=gh-actions-plan-dev"
+```
+
+Note the role ARN output and add it to your GitHub repository secrets as `AWS_OIDC_ROLE_ARN`.
+
+### 3. Update Environment Backend Configurations
 
 Replace `<ACCOUNT_ID>` in each `envs/*/backend.hcl` with your AWS account ID.
 
-### 3. Deploy to an Environment
+### 4. Deploy to an Environment
 
 ```bash
 cd envs/dev
@@ -116,11 +131,17 @@ infracost diff --path=envs/dev
 ```
 .
 ├── global/
-│   └── remote-state/          # S3 backend bootstrap
+│   ├── remote-state/          # S3 backend bootstrap
+│   └── iam_gh_oidc/           # GitHub OIDC provider for CI/CD
+├── modules/
+│   └── iam_gh_oidc/           # Reusable IAM OIDC module
 ├── envs/
 │   ├── dev/                   # Development environment
 │   ├── stage/                 # Staging environment
 │   └── prod/                  # Production environment
+├── .github/
+│   └── workflows/
+│       └── plan-validate.yml  # CI/CD pipeline for PR validation
 ├── docs/                      # Documentation
 ├── .pre-commit-config.yaml    # Pre-commit hooks
 ├── .tflint.hcl                # TFLint configuration
@@ -134,6 +155,24 @@ infracost diff --path=envs/dev
 | dev         | eu-west-3  | Development and testing   |
 | stage       | eu-west-3  | Pre-production validation |
 | prod        | eu-west-3  | Production workloads      |
+
+## CI/CD
+
+The project includes a GitHub Actions workflow (`plan-validate.yml`) that automatically:
+
+- Runs on pull requests affecting infrastructure code
+- Executes pre-commit hooks (formatting, linting, security scans)
+- Authenticates to AWS using OIDC (no long-lived credentials)
+- Validates Terraform configurations
+- Runs security scans with TFLint, Tfsec, and Checkov
+- Generates and uploads Terraform plans as artifacts
+- Posts a summary comment on pull requests
+
+### Setting up CI/CD
+
+1. Deploy the IAM OIDC configuration (see Quick Start step 2)
+2. Add the role ARN to GitHub repository secrets as `AWS_OIDC_ROLE_ARN`
+3. The workflow will automatically run on pull requests
 
 ## Documentation
 
