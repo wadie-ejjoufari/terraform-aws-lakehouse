@@ -1,0 +1,116 @@
+name: plan-validate
+on:
+  pull_request:
+    paths:
+      - "envs/**"
+      - "modules/**"
+      - ".tflint.hcl"
+      - ".pre-commit-config.yaml"
+      - "infracost.yml"
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.5 }
+
+      # TFLint
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+      - name: Initialize TFLint
+        run: tflint --init
+
+      # Trivy
+      - name: Setup Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
+
+      # Cache Trivy (DB + policy bundle)
+      - name: Cache Trivy artifacts
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.trivycache
+          key: ${{ runner.os }}-trivy-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-
+
+      # Pre-warm Trivy cache (DB + policy) to avoid download inside pre-commit
+      - name: Initialize Trivy cache
+        env:
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivycache
+        run: |
+          mkdir -p "$TRIVY_CACHE_DIR"
+          # Get the vuln DB so later hooks don't need network
+          trivy image --download-db-only --cache-dir "$TRIVY_CACHE_DIR" alpine:3.19 || true
+          # Trigger policy bundle download once
+          trivy config . --cache-dir "$TRIVY_CACHE_DIR" --quiet || true
+
+      # Checkov
+      - name: Setup Checkov
+        run: pip install checkov
+
+      # Run pre-commit with the same cache dir
+      - uses: pre-commit/action@v3.0.1
+        env:
+          TRIVY_CACHE_DIR: ${{ github.workspace }}/.trivycache
+          XDG_CACHE_HOME: ${{ github.workspace }}/.trivycache
+
+      # AWS OIDC
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: eu-west-1
+
+      # Terraform validate & plan
+      - name: Terraform Init & Validate (dev)
+        working-directory: envs/dev
+        run: |
+          # Get AWS Account ID
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+          # Replace <ACCOUNT_ID> in backend.hcl
+          sed "s/<ACCOUNT_ID>/$ACCOUNT_ID/g" backend.hcl > backend-resolved.hcl
+
+          terraform init -input=false -backend-config=backend-resolved.hcl
+          terraform validate -no-color
+
+      - name: TFLint
+        run: tflint --no-color || true
+
+      - name: Tfsec
+        run: tfsec . || true
+
+      - name: Checkov
+        run: checkov -d . || true
+
+      - name: Terraform Plan (dev)
+        working-directory: envs/dev
+        run: terraform plan -input=false -no-color -out=tfplan
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-dev
+          path: envs/dev/tfplan
+
+      - name: Comment summary
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            **Plan (dev) completed.**
+            - Terraform validated, linters ran.
+            - Plan artifact uploaded (tfplan-dev).
