@@ -95,7 +95,7 @@ jobs:
         run: tfsec . || true
 
       - name: Checkov
-        run: checkov -d . || true
+        run: checkov -d . --soft-fail || true
 
       - name: Terraform Plan (dev)
         id: plan
