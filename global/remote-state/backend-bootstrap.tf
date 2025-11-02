@@ -35,6 +35,24 @@ data "aws_iam_policy_document" "tf_state_kms" {
   }
 
   statement {
+    sid    = "Allow Terraform User"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${var.account_id}:user/terraform-user-001"]
+    }
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+      "kms:CreateGrant",
+      "kms:GenerateDataKey",
+      "kms:RetireGrant",
+      "kms:RevokeGrant"
+    ]
+    resources = ["*"]
+  }
+
+  statement {
     sid    = "Allow S3 to use the key"
     effect = "Allow"
     principals {
