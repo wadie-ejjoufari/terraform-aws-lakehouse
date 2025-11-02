@@ -67,28 +67,3 @@ output "log_bucket_name" {
   description = "Name of the centralized logging bucket"
   value       = module.logs.log_bucket_name
 }
-
-output "kms_key_arn" {
-  description = "ARN of the shared environment KMS key"
-  value       = aws_kms_key.s3.arn
-}
-
-output "kms_key_id" {
-  description = "ID of the shared environment KMS key"
-  value       = aws_kms_key.s3.key_id
-}
-
-output "kms_key_alias" {
-  description = "Alias of the shared environment KMS key"
-  value       = aws_kms_alias.s3.name
-}
-
-output "data_lake_buckets" {
-  description = "Map of data lake bucket names by tier"
-  value       = module.data_lake.bucket_names
-}
-
-output "log_bucket_name" {
-  description = "Name of the centralized logging bucket"
-  value       = module.logs.log_bucket_name
-}
