@@ -61,3 +61,8 @@ venv/
 
 # Infracost
 .infracost/
+
+# Local environment files
+.env
+.env.*.local
+.envrc
