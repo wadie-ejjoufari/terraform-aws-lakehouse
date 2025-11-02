@@ -1,6 +1,6 @@
 # terraform-aws-lakehouse
 
-AWS Data Lakehouse infrastructure as code using Terraform.
+Production-ready AWS Data Lakehouse infrastructure as code using Terraform.
 
 ## Architecture
 
@@ -11,43 +11,57 @@ A modern data lakehouse implementation on AWS featuring:
 - **Amazon Athena** for SQL analytics
 - **Lake Formation** for data governance
 - **IAM** for fine-grained access control
+- **KMS** for encryption at rest with automatic key rotation
 
 See [docs/architecture.md](docs/architecture.md) for detailed architecture.
 
-## Status
+## Features
 
-### Data Lake Buckets
+### Data Lake Storage
 
-The following S3 buckets are deployed for each environment:
+Three-tier medallion architecture implemented with S3:
 
-| Tier      | Purpose                                   | Bucket Naming Pattern | Features                                    |
-| --------- | ----------------------------------------- | --------------------- | ------------------------------------------- |
-| 🥉 Raw    | Ingestion layer for raw, unprocessed data | `{prefix}-raw`        | Versioning, KMS encryption, lifecycle rules |
-| 🥈 Silver | Cleansed and validated data               | `{prefix}-silver`     | Versioning, KMS encryption, lifecycle rules |
-| 🥇 Gold   | Curated, business-ready data              | `{prefix}-gold`       | Versioning, KMS encryption, lifecycle rules |
+| Tier      | Purpose                                   | Bucket Pattern    |
+| --------- | ----------------------------------------- | ----------------- |
+| 🥉 Raw    | Ingestion layer for raw, unprocessed data | `{prefix}-raw`    |
+| 🥈 Silver | Cleansed and validated data               | `{prefix}-silver` |
+| 🥇 Gold   | Curated, business-ready data              | `{prefix}-gold`   |
 
-**Example for dev environment:** `dp-dev-{account-id}-raw`, `dp-dev-{account-id}-silver`, `dp-dev-{account-id}-gold`
+**Example:** `dp-dev-{account-id}-raw`, `dp-dev-{account-id}-silver`, `dp-dev-{account-id}-gold`
 
-#### Bucket Features
+### Security
 
-All data lake buckets include:
+- **Encryption at Rest:** AWS KMS with customer-managed keys (CMK)
+  - Automatic annual key rotation enabled
+  - One shared key per environment for cost optimization
+  - Separate key for Terraform state
+- **Encryption in Transit:** TLS-only access enforced via bucket policies
+- **Access Control:**
+  - Public access blocked by default on all buckets
+  - Service-specific KMS key policies (least privilege)
+  - IAM OIDC for CI/CD (no long-lived credentials)
+- **Audit & Compliance:**
+  - Centralized access logging to observability bucket
+  - S3 versioning enabled for data recovery
+  - Point-in-time recovery on DynamoDB state lock table
 
-- **Encryption**: AWS KMS encryption at rest with automatic key rotation
-- **Versioning**: Enabled for data recovery and audit trails
-- **Access Logging**: Centralized logging to observability bucket
-- **Public Access**: Blocked by default for security
-- **Lifecycle Management**:
-  - Transition to Standard-IA after 30 days
-  - Transition to Glacier after 180 days
-  - Expiration after 730 days (2 years)
-- **Security**: TLS-only access enforced via bucket policy
+### Lifecycle Management
 
-To view bucket names after deployment:
+Automatic data tiering to optimize costs:
 
-```bash
-cd envs/dev
-terraform output
-```
+- **Standard-IA:** After 30 days
+- **Glacier:** After 180 days
+- **Expiration:** After 730 days (2 years)
+- **Incomplete multipart uploads:** Cleaned up after 7 days
+
+### Observability
+
+Centralized logging infrastructure:
+
+- Dedicated S3 bucket for access logs
+- 90-day transition to Glacier for log archives
+- 365-day log retention
+- Same KMS encryption as data lake buckets
 
 ## Prerequisites
 
@@ -57,6 +71,34 @@ terraform output
 - pre-commit: `pip install pre-commit`
 
 ## Quick Start
+
+### Using Makefile (Recommended)
+
+The project includes a comprehensive Makefile for all common operations:
+
+```bash
+# View all available commands
+make help
+
+# Setup (one-time)
+make init-remote-state    # Bootstrap S3 backend
+make init-dev             # Initialize dev environment
+
+# Deploy
+make plan-dev             # Plan changes
+make apply-dev            # Apply changes
+
+# Validate
+make check-dev            # Full validation
+make security             # Security scans
+
+# Destroy (with safeguards)
+make destroy-dev          # Destroy dev environment
+```
+
+See `make help` for the complete list of commands.
+
+### Manual Setup
 
 ### 1. Bootstrap Remote State (One-time setup)
 
@@ -84,6 +126,14 @@ terraform apply \
   -var "role_name=gh-actions-plan-dev"
 ```
 
+or, if you prefer using a variable file:
+
+```bash
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your GitHub organization and repository name
+terraform apply
+```
+
 Note the role ARN output and add it to your GitHub repository secrets as `AWS_OIDC_ROLE_ARN`.
 
 ### 3. Update Environment Backend Configurations
@@ -101,64 +151,19 @@ terraform plan
 terraform apply
 ```
 
-## Development Setup
-
-### Install the required CLIs
+### 5. View Deployed Resources
 
 ```bash
-# --- TFLint ---
-curl -sSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
-sudo cp .tflint.hcl /usr/local/bin
-tflint --version
+# View bucket names and KMS key details
+terraform output
 
-# --- Trivy (replaces tfsec) ---
-sudo apt-get update
-sudo apt-get install -y wget gnupg lsb-release
-wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
-sudo apt-get update && sudo apt-get install -y trivy
-trivy --version
-
-# --- Checkov ---
-pipx install checkov
-checkov --version
-```
-
-### Initialize TFLint plugins
-
-```bash
-tflint --init
-```
-
-### Install Pre-commit Hooks
-
-```bash
-pre-commit install
-pre-commit run --all-files
-```
-
-### Run Linting
-
-```bash
-# Format all Terraform files
-terraform fmt -recursive
-
-# Validate configurations
-cd envs/dev
-terraform validate
-
-# Run TFLint
-tflint --config=../../.tflint.hcl
-```
-
-### Cost Estimation
-
-```bash
-# Install infracost: https://www.infracost.io/docs/
-# Downloads the CLI based on your OS/arch and puts it in /usr/local/bin
-curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
-infracost breakdown --path=envs/dev
-infracost diff --path=envs/dev
+# Example output:
+# kms_key_arn = "arn:aws:kms:eu-west-3:123456789:key/abc-123"
+# data_lake_buckets = {
+#   "raw"    = "dp-dev-123456789-raw"
+#   "silver" = "dp-dev-123456789-silver"
+#   "gold"   = "dp-dev-123456789-gold"
+# }
 ```
 
 ## Project Structure
@@ -169,6 +174,8 @@ infracost diff --path=envs/dev
 │   ├── remote-state/          # S3 backend bootstrap
 │   └── iam_gh_oidc/           # GitHub OIDC provider for CI/CD
 ├── modules/
+│   ├── data_lake/             # S3 buckets (raw/silver/gold)
+│   ├── observability/         # Centralized logging
 │   └── iam_gh_oidc/           # Reusable IAM OIDC module
 ├── envs/
 │   ├── dev/                   # Development environment
@@ -176,11 +183,11 @@ infracost diff --path=envs/dev
 │   └── prod/                  # Production environment
 ├── .github/
 │   └── workflows/
-│       └── plan-validate.yml  # CI/CD pipeline for PR validation
+│       └── plan-validate.yml  # CI/CD pipeline
 ├── docs/                      # Documentation
 ├── .pre-commit-config.yaml    # Pre-commit hooks
 ├── .tflint.hcl                # TFLint configuration
-└── infracost.yml              # Infracost configuration
+└── infracost.yml              # Cost estimation config
 ```
 
 ## Environments
@@ -191,15 +198,31 @@ infracost diff --path=envs/dev
 | stage       | eu-west-3  | Pre-production validation |
 | prod        | eu-west-3  | Production workloads      |
 
+## KMS Key Architecture
+
+| Component         | KMS Key                 | Purpose                       | Monthly Cost |
+| ----------------- | ----------------------- | ----------------------------- | ------------ |
+| Terraform State   | `alias/terraform-state` | Remote state & DynamoDB locks | $1.00        |
+| Dev Environment   | `alias/dp-dev-s3`       | All dev S3 buckets (shared)   | $1.00        |
+| Stage Environment | `alias/dp-stage-s3`     | All stage S3 buckets (shared) | $1.00        |
+| Prod Environment  | `alias/dp-prod-s3`      | All prod S3 buckets (shared)  | $1.00        |
+| **Total**         |                         |                               | **$4.00/mo** |
+
+All KMS keys feature:
+
+- Automatic annual rotation
+- 10-day deletion window for recovery
+- Service-scoped policies (S3, DynamoDB)
+
 ## CI/CD
 
-The project includes a GitHub Actions workflow (`plan-validate.yml`) that automatically:
+The project includes a GitHub Actions workflow that automatically:
 
 - Runs on pull requests affecting infrastructure code
 - Executes pre-commit hooks (formatting, linting, security scans)
 - Authenticates to AWS using OIDC (no long-lived credentials)
 - Validates Terraform configurations
-- Runs security scans with TFLint, Tfsec, and Checkov
+- Runs security scans with TFLint, Trivy, and Checkov
 - Generates and uploads Terraform plans as artifacts
 - Posts a summary comment on pull requests
 
@@ -209,16 +232,117 @@ The project includes a GitHub Actions workflow (`plan-validate.yml`) that automa
 2. Add the role ARN to GitHub repository secrets as `AWS_OIDC_ROLE_ARN`
 3. The workflow will automatically run on pull requests
 
+## Development Setup
+
+### Quick Setup with Makefile
+
+```bash
+# Check installed tools
+make check-tools
+
+# Setup development environment
+make setup
+
+# Check AWS configuration
+make check-aws
+```
+
+### Install Pre-commit Hooks
+
+```bash
+pre-commit install
+pre-commit run --all-files
+```
+
+### Install Required CLIs
+
+```bash
+# TFLint
+curl -sSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+tflint --init
+
+# Trivy (security scanning)
+# See: https://aquasecurity.github.io/trivy/latest/getting-started/installation/
+
+# Checkov (policy as code)
+pipx install checkov
+```
+
+### Linting & Validation
+
+```bash
+# Using Makefile (recommended)
+make check-all            # Complete validation
+make fmt                  # Format code
+make validate             # Validate configs
+make lint                 # Run TFLint
+make security             # Security scans
+
+# Manual commands
+# Format all Terraform files
+terraform fmt -recursive
+
+# Validate configurations
+cd envs/dev
+terraform init -backend-config=backend.hcl
+terraform validate
+
+# Run TFLint
+tflint --config=../../.tflint.hcl
+
+# Security scan
+trivy config .
+```
+
+### Cost Estimation
+
+```bash
+# Using Makefile (recommended)
+make cost                 # All environments
+make cost-dev             # Dev only
+make cost-diff-dev        # Show cost changes
+
+# Manual commands
+# Install infracost
+curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
+
+# Estimate costs
+cd envs/dev
+infracost breakdown --path=.
+
+# Compare changes
+infracost diff --path=.
+```
+
+## Outputs
+
+Each environment exports the following outputs:
+
+| Output              | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `kms_key_arn`       | ARN of the shared environment KMS key          |
+| `kms_key_id`        | ID of the shared environment KMS key           |
+| `kms_key_alias`     | Alias of the KMS key (e.g., `alias/dp-dev-s3`) |
+| `data_lake_buckets` | Map of bucket names by tier (raw/silver/gold)  |
+| `log_bucket_name`   | Name of the centralized logging bucket         |
+
+## Cost Breakdown
+
+Estimated monthly costs per environment:
+
+| Resource Type      | Quantity | Unit Cost | Monthly Cost |
+| ------------------ | -------- | --------- | ------------ |
+| KMS Key            | 1        | $1.00     | $1.00        |
+| S3 Storage (100GB) | 3 tiers  | $0.023/GB | $6.90        |
+| S3 Requests        | Variable | $0.005/1k | ~$0.10       |
+| **Total (dev)**    |          |           | **~$8.00**   |
+
+**3 environments (dev/stage/prod): ~$24/month + Global state key ($1) = ~$25/month**
+
+> Costs vary based on actual data storage and request volume. Use `infracost` for accurate estimates.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) - System architecture and design
-- [Decisions](docs/decisions.md) - Architectural decision records
-- [Runbook](docs/runbook.md) - Operational procedures
-
-## Security
-
-- All S3 buckets are encrypted at rest
-- State files are stored in S3 with versioning enabled
-- DynamoDB state locking prevents concurrent modifications
-- Pre-commit hooks scan for security issues with tfsec and checkov
-- Private keys detection enabled
+- [Decisions](docs/decisions.md) - Architectural decision records (ADRs)
+- [Runbook](docs/runbook.md) - Operational procedures and destroy steps

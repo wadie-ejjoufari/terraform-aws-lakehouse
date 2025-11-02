@@ -21,50 +21,53 @@ locals {
   }
 }
 
-module "logs" {
-  source      = "../../modules/observability"
-  name_prefix = "dp-stage-${local.account_id}"
-  tags        = local.tags
+# KMS key policy document for S3 bucket encryption
+data "aws_iam_policy_document" "s3_kms" {
+  statement {
+    sid    = "Enable IAM User Permissions"
+    effect = "Allow"
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "Allow S3 to use the key"
+    effect = "Allow"
+    principals {
+      type        = "Service"
+      identifiers = ["s3.amazonaws.com"]
+    }
+    actions = [
+      "kms:Decrypt",
+      "kms:GenerateDataKey"
+    ]
+    resources = ["*"]
+  }
 }
 
-# KMS key for S3 bucket encryption
+# Shared KMS key for all S3 buckets in this environment
 resource "aws_kms_key" "s3" {
-  description             = "KMS key for S3 bucket encryption"
+  description             = "Shared KMS key for stage environment S3 buckets"
   deletion_window_in_days = 10
   enable_key_rotation     = true
+  policy                  = data.aws_iam_policy_document.s3_kms.json
   tags                    = local.tags
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Sid    = "Enable IAM User Permissions",
-        Effect = "Allow",
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        },
-        Action   = "kms:*",
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow S3 to use the key",
-        Effect = "Allow",
-        Principal = {
-          Service = "s3.amazonaws.com"
-        },
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey"
-        ],
-        Resource = "*"
-      }
-    ]
-  })
 }
 
 resource "aws_kms_alias" "s3" {
   name          = "alias/dp-stage-s3"
   target_key_id = aws_kms_key.s3.key_id
+}
+
+module "logs" {
+  source      = "../../modules/observability"
+  name_prefix = "dp-stage-${local.account_id}"
+  kms_key_id  = aws_kms_key.s3.arn
+  tags        = local.tags
 }
 
 module "data_lake" {

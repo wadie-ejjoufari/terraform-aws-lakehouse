@@ -47,7 +47,24 @@ locals {
         "s3:GetBucketLogging", "s3:GetLifecycleConfiguration",
         "s3:GetBucketPolicy", "s3:GetEncryptionConfiguration",
         "s3:GetBucketTagging", "s3:GetBucketLocation"
-      ], Resource = "*" }
+      ], Resource = "*" },
+      # KMS encrypt/decrypt for state files (encrypted with KMS)
+      {
+        Effect = "Allow",
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ],
+        Resource = "arn:aws:kms:*:*:key/*",
+        Condition = {
+          StringLike = {
+            "kms:ViaService" = ["s3.*.amazonaws.com", "dynamodb.*.amazonaws.com"]
+          }
+        }
+      }
     ]
   })
 }

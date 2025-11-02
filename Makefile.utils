@@ -1,0 +1,76 @@
+# ============================================================================
+# TROUBLESHOOTING & UTILITIES
+# ============================================================================
+
+.PHONY: import-kms-alias fix-state-lock state-list-dev state-list-stage \
+        state-list-prod state-show-dev check-aws check-tools clean clean-all
+
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+
+import-kms-alias:
+	@echo "Importing existing KMS alias into Terraform state..."
+	@read -p "Enter environment (dev/stage/prod): " env; \
+	cd envs/$$env && \
+	terraform import aws_kms_alias.tf_state alias/terraform-state
+	@echo "KMS alias imported"
+
+fix-state-lock:
+	@echo "Force unlocking Terraform state..."
+	@echo "Use this only if previous run was interrupted"
+	@read -p "Enter environment (dev/stage/prod): " env; \
+	read -p "Enter Lock ID from error message: " lockid; \
+	cd envs/$$env && terraform force-unlock $$lockid
+	@echo "State unlocked"
+
+state-list-dev:
+	@echo "Listing all resources in dev state..."
+	cd envs/dev && terraform state list
+
+state-list-stage:
+	@echo "Listing all resources in stage state..."
+	cd envs/stage && terraform state list
+
+state-list-prod:
+	@echo "Listing all resources in prod state..."
+	cd envs/prod && terraform state list
+
+state-show-dev:
+	@echo "Showing dev state..."
+	@read -p "Enter resource name: " resource; \
+	cd envs/dev && terraform state show $$resource
+
+# ============================================================================
+# UTILITIES
+# ============================================================================
+
+check-aws:
+	@echo "Checking AWS configuration..."
+	@echo "AWS Account: $$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'Not configured')"
+	@echo "AWS User: $$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || echo 'Not configured')"
+	@echo "AWS Region: $$(aws configure get region 2>/dev/null || echo 'Not configured')"
+
+check-tools:
+	@echo "Checking required tools..."
+	@command -v terraform >/dev/null 2>&1 && echo "terraform: $$(terraform version | head -n1)" || echo "terraform: not installed"
+	@command -v aws >/dev/null 2>&1 && echo "aws-cli: $$(aws --version)" || echo "aws-cli: not installed"
+	@command -v tflint >/dev/null 2>&1 && echo "tflint: $$(tflint --version)" || echo "tflint: not installed"
+	@command -v trivy >/dev/null 2>&1 && echo "trivy: $$(trivy --version | head -n1)" || echo "trivy: not installed"
+	@command -v checkov >/dev/null 2>&1 && echo "checkov: $$(checkov --version)" || echo "checkov: not installed"
+	@command -v infracost >/dev/null 2>&1 && echo "infracost: $$(infracost --version)" || echo "infracost: not installed"
+	@command -v pre-commit >/dev/null 2>&1 && echo "pre-commit: $$(pre-commit --version)" || echo "pre-commit: not installed"
+	@command -v jq >/dev/null 2>&1 && echo "jq: $$(jq --version)" || echo "jq: not installed"
+
+clean:
+	@echo "Cleaning up Terraform cache files..."
+	find . -type d -name ".terraform" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "tfplan" -delete 2>/dev/null || true
+	find . -type f -name ".terraform.lock.hcl" -delete 2>/dev/null || true
+	@echo "Cleanup complete"
+
+clean-all: clean
+	@echo "Deep cleaning (including state backups)..."
+	find . -type f -name "terraform.tfstate.backup" -delete 2>/dev/null || true
+	find . -type f -name "*.tfstate" ! -path "*/global/*" -delete 2>/dev/null || true
+	@echo "Deep cleanup complete"

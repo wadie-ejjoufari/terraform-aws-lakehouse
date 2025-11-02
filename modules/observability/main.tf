@@ -49,53 +49,12 @@ resource "aws_s3_bucket_versioning" "v" {
   versioning_configuration { status = "Enabled" }
 }
 
-data "aws_caller_identity" "current" {}
-
-resource "aws_kms_key" "logs" {
-  description             = "KMS key for S3 bucket encryption"
-  deletion_window_in_days = 10
-  enable_key_rotation     = true
-  tags                    = var.tags
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Sid    = "Enable IAM User Permissions",
-        Effect = "Allow",
-        Principal = {
-          AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-        },
-        Action   = "kms:*",
-        Resource = "*"
-      },
-      {
-        Sid    = "Allow S3 to use the key",
-        Effect = "Allow",
-        Principal = {
-          Service = "s3.amazonaws.com"
-        },
-        Action = [
-          "kms:Decrypt",
-          "kms:GenerateDataKey"
-        ],
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-resource "aws_kms_alias" "logs" {
-  name          = "alias/${var.name_prefix}-logs"
-  target_key_id = aws_kms_key.logs.key_id
-}
-
 resource "aws_s3_bucket_server_side_encryption_configuration" "sse" {
   bucket = aws_s3_bucket.logs.id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.logs.arn
+      kms_master_key_id = var.kms_key_id
     }
   }
 }
