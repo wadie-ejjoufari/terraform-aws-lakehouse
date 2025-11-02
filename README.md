@@ -21,11 +21,11 @@ See [docs/architecture.md](docs/architecture.md) for detailed architecture.
 
 Three-tier medallion architecture implemented with S3:
 
-| Tier      | Purpose                                   | Bucket Pattern           | 
-| --------- | ----------------------------------------- | ------------------------ |
-| 🥉 Raw    | Ingestion layer for raw, unprocessed data | `{prefix}-raw`           |
-| 🥈 Silver | Cleansed and validated data               | `{prefix}-silver`        |
-| 🥇 Gold   | Curated, business-ready data              | `{prefix}-gold`          |
+| Tier      | Purpose                                   | Bucket Pattern    |
+| --------- | ----------------------------------------- | ----------------- |
+| 🥉 Raw    | Ingestion layer for raw, unprocessed data | `{prefix}-raw`    |
+| 🥈 Silver | Cleansed and validated data               | `{prefix}-silver` |
+| 🥇 Gold   | Curated, business-ready data              | `{prefix}-gold`   |
 
 **Example:** `dp-dev-{account-id}-raw`, `dp-dev-{account-id}-silver`, `dp-dev-{account-id}-gold`
 
@@ -36,7 +36,7 @@ Three-tier medallion architecture implemented with S3:
   - One shared key per environment for cost optimization
   - Separate key for Terraform state
 - **Encryption in Transit:** TLS-only access enforced via bucket policies
-- **Access Control:** 
+- **Access Control:**
   - Public access blocked by default on all buckets
   - Service-specific KMS key policies (least privilege)
   - IAM OIDC for CI/CD (no long-lived credentials)
@@ -72,6 +72,34 @@ Centralized logging infrastructure:
 
 ## Quick Start
 
+### Using Makefile (Recommended)
+
+The project includes a comprehensive Makefile for all common operations:
+
+```bash
+# View all available commands
+make help
+
+# Setup (one-time)
+make init-remote-state    # Bootstrap S3 backend
+make init-dev             # Initialize dev environment
+
+# Deploy
+make plan-dev             # Plan changes
+make apply-dev            # Apply changes
+
+# Validate
+make check-dev            # Full validation
+make security             # Security scans
+
+# Destroy (with safeguards)
+make destroy-dev          # Destroy dev environment
+```
+
+See `make help` for the complete list of commands.
+
+### Manual Setup
+
 ### 1. Bootstrap Remote State (One-time setup)
 
 ```bash
@@ -96,6 +124,14 @@ terraform apply \
   -var "region=eu-west-3" \
   -var "repo=<your-github-org>/<your-repo-name>" \
   -var "role_name=gh-actions-plan-dev"
+```
+
+or, if you prefer using a variable file:
+
+```bash
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your GitHub organization and repository name
+terraform apply
 ```
 
 Note the role ARN output and add it to your GitHub repository secrets as `AWS_OIDC_ROLE_ARN`.
@@ -164,15 +200,16 @@ terraform output
 
 ## KMS Key Architecture
 
-| Component           | KMS Key                         | Purpose                               | Monthly Cost |
-| ------------------- | ------------------------------- | ------------------------------------- | ------------ |
-| Terraform State     | `alias/terraform-state`         | Remote state & DynamoDB locks         | $1.00        |
-| Dev Environment     | `alias/dp-dev-s3`               | All dev S3 buckets (shared)           | $1.00        |
-| Stage Environment   | `alias/dp-stage-s3`             | All stage S3 buckets (shared)         | $1.00        |
-| Prod Environment    | `alias/dp-prod-s3`              | All prod S3 buckets (shared)          | $1.00        |
-| **Total**           |                                 |                                       | **$4.00/mo** |
+| Component         | KMS Key                 | Purpose                       | Monthly Cost |
+| ----------------- | ----------------------- | ----------------------------- | ------------ |
+| Terraform State   | `alias/terraform-state` | Remote state & DynamoDB locks | $1.00        |
+| Dev Environment   | `alias/dp-dev-s3`       | All dev S3 buckets (shared)   | $1.00        |
+| Stage Environment | `alias/dp-stage-s3`     | All stage S3 buckets (shared) | $1.00        |
+| Prod Environment  | `alias/dp-prod-s3`      | All prod S3 buckets (shared)  | $1.00        |
+| **Total**         |                         |                               | **$4.00/mo** |
 
 All KMS keys feature:
+
 - Automatic annual rotation
 - 10-day deletion window for recovery
 - Service-scoped policies (S3, DynamoDB)
@@ -196,6 +233,19 @@ The project includes a GitHub Actions workflow that automatically:
 3. The workflow will automatically run on pull requests
 
 ## Development Setup
+
+### Quick Setup with Makefile
+
+```bash
+# Check installed tools
+make check-tools
+
+# Setup development environment
+make setup
+
+# Check AWS configuration
+make check-aws
+```
 
 ### Install Pre-commit Hooks
 
@@ -221,6 +271,14 @@ pipx install checkov
 ### Linting & Validation
 
 ```bash
+# Using Makefile (recommended)
+make check-all            # Complete validation
+make fmt                  # Format code
+make validate             # Validate configs
+make lint                 # Run TFLint
+make security             # Security scans
+
+# Manual commands
 # Format all Terraform files
 terraform fmt -recursive
 
@@ -239,6 +297,12 @@ trivy config .
 ### Cost Estimation
 
 ```bash
+# Using Makefile (recommended)
+make cost                 # All environments
+make cost-dev             # Dev only
+make cost-diff-dev        # Show cost changes
+
+# Manual commands
 # Install infracost
 curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
 
@@ -254,24 +318,24 @@ infracost diff --path=.
 
 Each environment exports the following outputs:
 
-| Output               | Description                                    |
-| -------------------- | ---------------------------------------------- |
-| `kms_key_arn`        | ARN of the shared environment KMS key          |
-| `kms_key_id`         | ID of the shared environment KMS key           |
-| `kms_key_alias`      | Alias of the KMS key (e.g., `alias/dp-dev-s3`) |
-| `data_lake_buckets`  | Map of bucket names by tier (raw/silver/gold)  |
-| `log_bucket_name`    | Name of the centralized logging bucket         |
+| Output              | Description                                    |
+| ------------------- | ---------------------------------------------- |
+| `kms_key_arn`       | ARN of the shared environment KMS key          |
+| `kms_key_id`        | ID of the shared environment KMS key           |
+| `kms_key_alias`     | Alias of the KMS key (e.g., `alias/dp-dev-s3`) |
+| `data_lake_buckets` | Map of bucket names by tier (raw/silver/gold)  |
+| `log_bucket_name`   | Name of the centralized logging bucket         |
 
 ## Cost Breakdown
 
 Estimated monthly costs per environment:
 
-| Resource Type       | Quantity | Unit Cost | Monthly Cost |
-| ------------------- | -------- | --------- | ------------ |
-| KMS Key             | 1        | $1.00     | $1.00        |
-| S3 Storage (100GB)  | 3 tiers  | $0.023/GB | $6.90        |
-| S3 Requests         | Variable | $0.005/1k | ~$0.10       |
-| **Total (dev)**     |          |           | **~$8.00**   |
+| Resource Type      | Quantity | Unit Cost | Monthly Cost |
+| ------------------ | -------- | --------- | ------------ |
+| KMS Key            | 1        | $1.00     | $1.00        |
+| S3 Storage (100GB) | 3 tiers  | $0.023/GB | $6.90        |
+| S3 Requests        | Variable | $0.005/1k | ~$0.10       |
+| **Total (dev)**    |          |           | **~$8.00**   |
 
 **3 environments (dev/stage/prod): ~$24/month + Global state key ($1) = ~$25/month**
 
@@ -281,4 +345,4 @@ Estimated monthly costs per environment:
 
 - [Architecture](docs/architecture.md) - System architecture and design
 - [Decisions](docs/decisions.md) - Architectural decision records (ADRs)
-- [Runbook](docs/runbook.md) - Operational procedures
+- [Runbook](docs/runbook.md) - Operational procedures and destroy steps

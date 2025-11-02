@@ -7,8 +7,9 @@
 3. [Validation & Testing](#validation--testing)
 4. [Troubleshooting](#troubleshooting)
 5. [Maintenance Tasks](#maintenance-tasks)
-6. [Rollback Procedures](#rollback-procedures)
-7. [Monitoring & Alerts](#monitoring--alerts)
+6. [Destroy Procedures](#destroy-procedures)
+7. [Rollback Procedures](#rollback-procedures)
+8. [Monitoring & Alerts](#monitoring--alerts)
 
 ---
 
@@ -32,7 +33,7 @@ terraform apply tfplan
 # View outputs
 terraform output
 
-# Destroy environment (DANGER)
+# Destroy environment (DANGER - see Destroy Procedures section)
 terraform destroy
 ```
 
@@ -79,6 +80,7 @@ terraform output
 ```
 
 **Expected Outputs:**
+
 - `state_bucket_name`: S3 bucket for Terraform state
 - `dynamodb_table_name`: DynamoDB table for state locking
 - `kms_key_id`: KMS key ID for state encryption
@@ -242,6 +244,7 @@ aws s3 ls s3://$LOG_BUCKET/raw/ | head -5
 #### Issue 1: KMS Permission Denied
 
 **Symptom:**
+
 ```
 Error: AccessDeniedException: User is not authorized to perform: kms:Decrypt
 ```
@@ -249,6 +252,7 @@ Error: AccessDeniedException: User is not authorized to perform: kms:Decrypt
 **Cause:** IAM user/role lacks KMS permissions
 
 **Solution:**
+
 ```bash
 # Check your IAM identity
 aws sts get-caller-identity
@@ -266,6 +270,7 @@ terraform apply  # This will update permissions
 #### Issue 2: State Lock Conflict
 
 **Symptom:**
+
 ```
 Error: Error acquiring the state lock
 ```
@@ -273,6 +278,7 @@ Error: Error acquiring the state lock
 **Cause:** Previous Terraform run didn't release lock (crash/interrupt)
 
 **Solution:**
+
 ```bash
 # List locks
 aws dynamodb scan --table-name tf-locks
@@ -289,6 +295,7 @@ aws dynamodb delete-item \
 #### Issue 3: Module Not Found
 
 **Symptom:**
+
 ```
 Error: Module not installed
 ```
@@ -296,6 +303,7 @@ Error: Module not installed
 **Cause:** Terraform modules not initialized
 
 **Solution:**
+
 ```bash
 cd envs/dev
 rm -rf .terraform
@@ -305,6 +313,7 @@ terraform init -backend-config=backend.hcl
 #### Issue 4: Backend Configuration Error
 
 **Symptom:**
+
 ```
 Error: Failed to get existing workspaces: NoSuchBucket
 ```
@@ -312,6 +321,7 @@ Error: Failed to get existing workspaces: NoSuchBucket
 **Cause:** Remote state bucket doesn't exist or backend config incorrect
 
 **Solution:**
+
 ```bash
 # Verify state bucket exists
 aws s3 ls | grep tf-state
@@ -331,6 +341,7 @@ terraform init -backend-config=backend.hcl -reconfigure
 #### Issue 5: Observability Module Missing KMS Variable
 
 **Symptom:**
+
 ```
 Error: No declaration found for "var.kms_key_id"
 ```
@@ -338,6 +349,7 @@ Error: No declaration found for "var.kms_key_id"
 **Cause:** Module update didn't propagate
 
 **Solution:**
+
 ```bash
 # Re-initialize modules
 cd envs/dev
@@ -429,6 +441,403 @@ terraform providers
 
 ---
 
+## Destroy Procedures
+
+### WARNING: Destructive Operations
+
+Destroying infrastructure will **permanently delete all data** in S3 buckets and remove all resources. This action cannot be undone. Always:
+
+- Backup critical data before destroying
+- Verify you're in the correct AWS account
+- Double-check the environment (dev/stage/prod)
+- Get approval for non-dev environments
+
+### Pre-Destroy Checklist
+
+```bash
+# 1. Verify AWS account
+aws sts get-caller-identity
+
+# 2. Verify environment
+pwd  # Should show correct env path
+
+# 3. List resources that will be destroyed
+terraform state list
+
+# 4. Review what will be destroyed
+terraform plan -destroy
+```
+
+### Destroying Environments (Safe Order)
+
+#### Step 1: Export/Backup Data (Optional but Recommended)
+
+```bash
+cd envs/dev
+
+# List all data lake buckets
+BUCKETS=$(terraform output -json data_lake_buckets | jq -r '.[]')
+
+# Backup important data
+for BUCKET in $BUCKETS; do
+  echo "Backing up $BUCKET..."
+  aws s3 sync s3://$BUCKET ./backups/$BUCKET/ --only-show-errors
+done
+
+# Backup logs
+LOG_BUCKET=$(terraform output -raw log_bucket_name)
+aws s3 sync s3://$LOG_BUCKET ./backups/$LOG_BUCKET/ --only-show-errors
+```
+
+#### Step 2: Destroy a Single Environment
+
+```bash
+cd envs/dev  # or stage/prod
+
+# Review destruction plan
+terraform plan -destroy
+
+# Destroy with confirmation prompt
+terraform destroy
+
+# If buckets have objects and force_destroy=false, you may need to empty them first:
+# See "Force Empty Buckets" section below
+```
+
+#### Step 3: Destroy All Environments
+
+```bash
+# Destroy in order: prod → stage → dev
+cd envs/prod
+terraform destroy -auto-approve  # Use -auto-approve only if certain
+
+cd ../stage
+terraform destroy -auto-approve
+
+cd ../dev
+terraform destroy -auto-approve
+```
+
+#### Step 4: Destroy Global Resources
+
+```bash
+# Destroy GitHub OIDC (if no longer needed)
+cd global/iam_gh_oidc
+terraform destroy
+
+# ⚠️ LAST STEP: Destroy remote state (WARNING: No more Terraform management after this!)
+cd ../remote-state
+terraform destroy
+
+# This will delete:
+# - Terraform state S3 bucket
+# - State logs S3 bucket
+# - DynamoDB lock table
+# - KMS key (scheduled for deletion after 10 days)
+```
+
+### Force Empty Buckets (If Needed)
+
+If `force_destroy = false` in bucket configuration, you must manually empty buckets:
+
+```bash
+cd envs/dev
+
+# Get bucket names
+RAW_BUCKET=$(terraform output -json data_lake_buckets | jq -r '.raw')
+SILVER_BUCKET=$(terraform output -json data_lake_buckets | jq -r '.silver')
+GOLD_BUCKET=$(terraform output -json data_lake_buckets | jq -r '.gold')
+LOG_BUCKET=$(terraform output -raw log_bucket_name)
+
+# Empty each bucket (this deletes all objects and versions)
+aws s3 rm s3://$RAW_BUCKET --recursive
+aws s3api delete-objects \
+  --bucket $RAW_BUCKET \
+  --delete "$(aws s3api list-object-versions \
+    --bucket $RAW_BUCKET \
+    --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+    --max-items 1000)"
+
+aws s3 rm s3://$SILVER_BUCKET --recursive
+aws s3api delete-objects \
+  --bucket $SILVER_BUCKET \
+  --delete "$(aws s3api list-object-versions \
+    --bucket $SILVER_BUCKET \
+    --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+    --max-items 1000)"
+
+aws s3 rm s3://$GOLD_BUCKET --recursive
+aws s3api delete-objects \
+  --bucket $GOLD_BUCKET \
+  --delete "$(aws s3api list-object-versions \
+    --bucket $GOLD_BUCKET \
+    --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+    --max-items 1000)"
+
+aws s3 rm s3://$LOG_BUCKET --recursive
+aws s3api delete-objects \
+  --bucket $LOG_BUCKET \
+  --delete "$(aws s3api list-object-versions \
+    --bucket $LOG_BUCKET \
+    --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+    --max-items 1000)"
+
+# Now retry destroy
+terraform destroy
+```
+
+### Quick Destroy Script (Use with Caution)
+
+Create a helper script for development environments:
+
+```bash
+cat > destroy-dev.sh << 'EOF'
+#!/bin/bash
+set -e
+
+echo "WARNING: This will destroy the DEV environment"
+echo "Current AWS Account: $(aws sts get-caller-identity --query Account --output text)"
+read -p "Type 'destroy-dev' to confirm: " confirm
+
+if [ "$confirm" != "destroy-dev" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
+cd envs/dev
+
+echo "Emptying S3 buckets..."
+for bucket in $(terraform output -json data_lake_buckets | jq -r '.[]') $(terraform output -raw log_bucket_name); do
+  echo "  Emptying $bucket..."
+  aws s3 rm s3://$bucket --recursive --quiet || true
+  # Delete all versions
+  aws s3api delete-objects \
+    --bucket $bucket \
+    --delete "$(aws s3api list-object-versions \
+      --bucket $bucket \
+      --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+      --max-items 1000 2>/dev/null)" \
+    2>/dev/null || true
+done
+
+echo "Destroying Terraform resources..."
+terraform destroy -auto-approve
+
+echo "Dev environment destroyed"
+EOF
+
+chmod +x destroy-dev.sh
+```
+
+Usage:
+
+```bash
+./destroy-dev.sh
+```
+
+### Destroying Specific Resources
+
+Target specific resources for deletion:
+
+```bash
+cd envs/dev
+
+# Destroy only data lake buckets
+terraform destroy -target=module.data_lake
+
+# Destroy only observability resources
+terraform destroy -target=module.observability
+
+# Destroy specific bucket
+terraform destroy -target=module.data_lake.aws_s3_bucket.dl[\"raw\"]
+
+# View what will be affected
+terraform plan -destroy -target=module.data_lake
+```
+
+### Handling Destroy Failures
+
+#### Issue: KMS Key Pending Deletion
+
+**Symptom:**
+
+```
+Error: KMS key is pending deletion and cannot be used
+```
+
+**Solution:**
+
+```bash
+# Cancel key deletion
+KMS_KEY_ID=$(terraform state show module.data_lake.aws_kms_key.s3 | grep "id " | awk '{print $3}' | tr -d '"')
+aws kms cancel-key-deletion --key-id $KMS_KEY_ID
+
+# Retry destroy
+terraform destroy
+```
+
+#### Issue: Bucket Not Empty
+
+**Symptom:**
+
+```
+Error: error deleting S3 Bucket: BucketNotEmpty
+```
+
+**Solution:**
+See "Force Empty Buckets" section above.
+
+#### Issue: State Lock During Destroy
+
+**Symptom:**
+
+```
+Error: Error acquiring the state lock
+```
+
+**Solution:**
+
+```bash
+# Force unlock
+terraform force-unlock <LOCK_ID>
+
+# Retry destroy
+terraform destroy
+```
+
+#### Issue: Dependency Violations
+
+**Symptom:**
+
+```
+Error: deleting KMS Key: key is in use by other resources
+```
+
+**Solution:**
+
+```bash
+# Find dependent resources
+KMS_KEY_ID="your-key-id"
+aws kms list-grants --key-id $KMS_KEY_ID
+
+# Delete resources using the key first
+terraform destroy -target=module.data_lake.aws_s3_bucket_server_side_encryption_configuration.sse
+
+# Then destroy KMS key
+terraform destroy -target=module.data_lake.aws_kms_key.s3
+```
+
+### Post-Destroy Verification
+
+```bash
+# Verify buckets are deleted
+aws s3 ls | grep dp-dev
+
+# Verify KMS keys are scheduled for deletion
+aws kms list-keys --query 'Keys[*].KeyId' --output text | while read key; do
+  aws kms describe-key --key-id $key --query 'KeyMetadata.[KeyId,KeyState]' --output text
+done | grep "PendingDeletion"
+
+# Verify DynamoDB tables are deleted
+aws dynamodb list-tables | grep tf-locks
+
+# Check for any remaining resources with tags
+aws resourcegroupstaggingapi get-resources \
+  --tag-filters Key=Project,Values=terraform-aws-lakehouse \
+  --query 'ResourceTagMappingList[*].[ResourceARN]' \
+  --output text
+```
+
+### Complete Teardown (Nuclear Option)
+
+For complete cleanup of everything including remote state:
+
+```bash
+#!/bin/bash
+# complete-teardown.sh - Use only for complete project removal
+
+set -e
+
+echo " ~~~ COMPLETE TEARDOWN ~~~ "
+echo "This will destroy ALL infrastructure including remote state"
+echo "This action is IRREVERSIBLE"
+echo ""
+echo "Current AWS Account: $(aws sts get-caller-identity --query Account --output text)"
+echo ""
+read -p "Type 'destroy-everything' to confirm: " confirm
+
+if [ "$confirm" != "destroy-everything" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
+# Destroy environments in order
+for env in prod stage dev; do
+  echo "Destroying $env environment..."
+  cd envs/$env
+
+  # Empty buckets
+  terraform output -json 2>/dev/null | jq -r '.. | select(type == "string" and startswith("arn:aws:s3:::"))' | \
+    sed 's/arn:aws:s3::://g' | while read bucket; do
+    echo "  Emptying $bucket..."
+    aws s3 rm s3://$bucket --recursive --quiet 2>/dev/null || true
+  done
+
+  terraform destroy -auto-approve || echo "Failed to destroy $env (continuing...)"
+  cd ../..
+done
+
+# Destroy global resources
+echo "Destroying GitHub OIDC..."
+cd global/iam_gh_oidc
+terraform destroy -auto-approve || echo "Failed to destroy OIDC (continuing...)"
+
+echo "Destroying remote state infrastructure..."
+cd ../remote-state
+
+# Empty state buckets
+STATE_BUCKET="tf-state-$(aws sts get-caller-identity --query Account --output text)-eu-west-3"
+LOGS_BUCKET="tf-state-logs-$(aws sts get-caller-identity --query Account --output text)-eu-west-3"
+
+echo "  Emptying $STATE_BUCKET..."
+aws s3 rm s3://$STATE_BUCKET --recursive --quiet 2>/dev/null || true
+echo "  Emptying $LOGS_BUCKET..."
+aws s3 rm s3://$LOGS_BUCKET --recursive --quiet 2>/dev/null || true
+
+terraform destroy -auto-approve || echo "Failed to destroy remote state (continuing...)"
+
+cd ../..
+
+echo ""
+echo "Teardown complete"
+echo ""
+echo "Note: KMS keys are scheduled for deletion (10-day waiting period)"
+echo "To immediately delete (cannot be undone):"
+echo "  aws kms schedule-key-deletion --key-id <KEY_ID> --pending-window-in-days 7"
+```
+
+### Recovery After Accidental Destroy
+
+If you accidentally destroyed resources:
+
+```bash
+# 1. Check S3 bucket versioning (if versioning was enabled)
+aws s3api list-object-versions --bucket <bucket-name>
+
+# 2. Restore from Terraform state backup
+cd envs/dev
+# State is versioned in S3 - see "Restoring from State Backup" section
+
+# 3. Re-deploy infrastructure
+terraform init -backend-config=backend.hcl
+terraform apply
+
+# 4. Restore data from backups (if you made backups)
+aws s3 sync ./backups/<bucket-name>/ s3://<bucket-name>/
+```
+
+---
+
 ## Rollback Procedures
 
 ### Rolling Back a Failed Apply
@@ -503,12 +912,14 @@ terraform apply -target=module.data_lake.aws_s3_bucket.dl
 ### Key Metrics to Monitor
 
 1. **S3 Bucket Metrics:**
+
    - Number of objects
    - Total size
    - Request rates (GET/PUT)
    - 4xx/5xx errors
 
 2. **KMS Metrics:**
+
    - API request count
    - Throttled requests
    - Key state (Enabled)
@@ -564,20 +975,20 @@ infracost breakdown --path=.
 
 ## Emergency Contacts & Escalation
 
-| Role                 | Contact Method | Use Case                     |
-| -------------------- | -------------- | ---------------------------- |
-| Platform Team Lead   | [Email/Slack]  | Infrastructure issues        |
-| Security Team        | [Email/Slack]  | Security incidents           |
-| AWS Support          | Support Case   | AWS service issues           |
-| On-Call Engineer     | PagerDuty      | After-hours emergencies      |
+| Role               | Contact Method | Use Case                |
+| ------------------ | -------------- | ----------------------- |
+| Platform Team Lead | [Email/Slack]  | Infrastructure issues   |
+| Security Team      | [Email/Slack]  | Security incidents      |
+| AWS Support        | Support Case   | AWS service issues      |
+| On-Call Engineer   | PagerDuty      | After-hours emergencies |
 
 ---
 
 ## Change Log
 
-| Date       | Change                                      | Author |
-| ---------- | ------------------------------------------- | ------ |
-| 2025-11-02 | Initial runbook creation                    | System |
+| Date       | Change                                     | Author |
+| ---------- | ------------------------------------------ | ------ |
+| 2025-11-02 | Initial runbook creation                   | System |
 | 2025-11-02 | Added KMS key consolidation procedures     | System |
 | 2025-11-02 | Added validation and troubleshooting steps | System |
 
