@@ -1,0 +1,51 @@
+# ============================================================================
+# COST ANALYSIS & DEVELOPMENT
+# ============================================================================
+
+.PHONY: cost cost-dev cost-diff-dev pre-commit setup
+
+# ============================================================================
+# COST ANALYSIS
+# ============================================================================
+
+cost:
+	@echo "Cost estimates for all environments..."
+	@for env in dev stage prod; do \
+		echo ""; \
+		echo "Environment: $$env"; \
+		echo "─────────────────────────────────────"; \
+		infracost breakdown --path=envs/$$env 2>/dev/null || echo "Infracost not installed or configured"; \
+	done
+	@echo ""
+	@echo "Cost analysis complete"
+
+cost-dev:
+	@echo "Cost estimate for dev environment..."
+	infracost breakdown --path=envs/dev
+
+cost-diff-dev:
+	@echo "Cost diff for dev environment..."
+	infracost diff --path=envs/dev
+
+# ============================================================================
+# DEVELOPMENT
+# ============================================================================
+
+pre-commit:
+	@echo "Setting up pre-commit hooks..."
+	pre-commit install
+	pre-commit run --all-files
+	@echo "Pre-commit hooks installed"
+
+setup: check-tools
+	@echo "Setting up development environment..."
+	@$(MAKE) pre-commit
+	@echo ""
+	@echo "Setup complete!"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Configure AWS credentials: aws configure"
+	@echo "  2. Bootstrap remote state: make init-remote-state"
+	@echo "  3. Initialize dev environment: make init-dev"
+	@echo "  4. Plan changes: make plan-dev"
+	@echo "  5. Apply changes: make apply-dev"

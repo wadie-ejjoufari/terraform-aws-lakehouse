@@ -3,19 +3,59 @@
 ## Table of Contents
 
 1. [Quick Reference](#quick-reference)
-2. [Deployment Procedures](#deployment-procedures)
-3. [Validation & Testing](#validation--testing)
-4. [Troubleshooting](#troubleshooting)
-5. [Maintenance Tasks](#maintenance-tasks)
-6. [Destroy Procedures](#destroy-procedures)
-7. [Rollback Procedures](#rollback-procedures)
-8. [Monitoring & Alerts](#monitoring--alerts)
+2. [Makefile Structure](#makefile-structure)
+3. [Deployment Procedures](#deployment-procedures)
+4. [Validation & Testing](#validation--testing)
+5. [Troubleshooting](#troubleshooting)
+6. [Maintenance Tasks](#maintenance-tasks)
+7. [Destroy Procedures](#destroy-procedures)
+8. [Rollback Procedures](#rollback-procedures)
+9. [Monitoring & Alerts](#monitoring--alerts)
 
 ---
 
 ## Quick Reference
 
+### Makefile Commands
+
+This project uses a **modular Makefile structure** for better organization. All commands are run from the project root:
+
+```bash
+# View all available commands
+make help
+
+# Quick command reference by category
+make check-tools        # Verify tool installations
+make check-aws          # Check AWS configuration
+```
+
+For detailed Makefile documentation, see [MAKEFILE_STRUCTURE.md](../MAKEFILE_STRUCTURE.md).
+
 ### Key Commands
+
+```bash
+# Setup (first time)
+make init-remote-state  # Bootstrap S3 backend
+make init-dev          # Initialize dev environment
+
+# Development workflow
+make fmt               # Format code
+make validate          # Validate configuration
+make plan-dev          # Plan changes
+make apply-dev         # Apply changes
+
+# Validation
+make check-dev         # Full validation
+make security          # Security scans
+
+# Cleanup
+make empty-buckets-dev # Empty buckets before destroy
+make destroy-dev       # Destroy environment
+```
+
+### Direct Terraform Commands
+
+If you prefer direct Terraform commands:
 
 ```bash
 # Format code
@@ -52,11 +92,104 @@ terraform output log_bucket_name
 
 ---
 
+## Makefile Structure
+
+The project uses a modular Makefile organization split into 6 modules:
+
+### Module Overview
+
+| Module   | File                | Purpose                                 |
+| -------- | ------------------- | --------------------------------------- |
+| Setup    | `Makefile.setup`    | Initialization and bootstrap operations |
+| Deploy   | `Makefile.deploy`   | Plan and apply deployments              |
+| Destroy  | `Makefile.destroy`  | Destroy and cleanup operations          |
+| Validate | `Makefile.validate` | Formatting, validation, security checks |
+| Utils    | `Makefile.utils`    | Troubleshooting and utility commands    |
+| Dev      | `Makefile.dev`      | Cost analysis and development tools     |
+
+### Common Make Commands
+
+```bash
+# Initialization (Makefile.setup)
+make init-remote-state   # One-time setup
+make init-dev            # Initialize dev environment
+
+# Deployment (Makefile.deploy)
+make plan-dev            # Plan infrastructure changes
+make apply-dev           # Apply changes
+make verify-deployment-dev  # Verify deployment
+
+# Validation (Makefile.validate)
+make fmt                 # Format all Terraform files
+make validate            # Validate all configurations
+make lint                # Run TFLint
+make security            # Run security scans
+make check-all           # Full validation suite
+
+# Destroy (Makefile.destroy)
+make empty-buckets-dev   # Empty S3 buckets
+make empty-state-bucket  # Empty state bucket
+make destroy-dev         # Destroy environment
+make destroy-all         # DANGER: Destroy everything
+make verify-destroy      # Verify cleanup
+
+# Utilities (Makefile.utils)
+make check-tools         # Verify tool installations
+make check-aws           # Check AWS configuration
+make fix-state-lock      # Force unlock state
+make clean               # Clean cache files
+
+# Development (Makefile.dev)
+make cost                # Cost analysis
+make pre-commit          # Setup pre-commit hooks
+make setup               # Quick developer setup
+```
+
+### Using Make vs Direct Terraform
+
+**Use Make when:**
+
+- You want standardized, repeatable operations
+- Working across multiple environments
+- Need pre/post deployment checks
+- Running validation suites
+- New team members learning the project
+
+**Use Direct Terraform when:**
+
+- Debugging specific issues
+- Need fine-grained control
+- Working with specific resources
+- Exploring state details
+
+For complete Makefile documentation, see [MAKEFILE_STRUCTURE.md](../MAKEFILE_STRUCTURE.md).
+
+---
+
 ## Deployment Procedures
+
+> **Tip:** You can use Make commands for a streamlined experience:
+>
+> - `make init-remote-state` - Bootstrap remote state
+> - `make init-dev` - Initialize dev environment
+> - `make plan-dev` - Plan changes
+> - `make apply-dev` - Apply changes
+>
+> The commands below show the underlying Terraform operations for reference.
 
 ### Initial Setup (First Time Only)
 
 #### Step 1: Bootstrap Remote State
+
+**Using Make (Recommended):**
+
+```bash
+make init-remote-state
+# Follow prompts to configure terraform.tfvars
+cd global/remote-state && terraform apply
+```
+
+**Using Terraform directly:**
 
 ```bash
 # Navigate to remote state directory

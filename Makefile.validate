@@ -1,0 +1,59 @@
+# ============================================================================
+# VALIDATION & TESTING
+# ============================================================================
+
+.PHONY: fmt validate lint security check-dev check-stage check-prod check-all
+
+fmt:
+	@echo "Formatting Terraform files..."
+	terraform fmt -recursive
+	@echo "Files formatted"
+
+validate:
+	@echo "Validating Terraform configurations..."
+	@for env in dev stage prod; do \
+		echo "  Validating envs/$$env..."; \
+		cd envs/$$env && terraform init -backend=false && terraform validate && cd ../..; \
+	done
+	@echo "All configurations valid"
+
+lint:
+	@echo "Running TFLint..."
+	@for env in dev stage prod; do \
+		echo "  Linting envs/$$env..."; \
+		cd envs/$$env && tflint --config=../../.tflint.hcl && cd ../..; \
+	done
+	@echo "Linting complete"
+
+security:
+	@echo "Running security scans..."
+	@echo "Running Trivy..."
+	trivy config . --severity HIGH,CRITICAL || true
+	@echo ""
+	@echo "Running Checkov..."
+	checkov -d . --config-file ci/policies/checkov_custom.yaml --compact || true
+	@echo "Security scans complete"
+
+check-dev: fmt validate
+	@echo "Full validation for dev environment..."
+	cd envs/dev && terraform init -backend-config=backend.hcl
+	cd envs/dev && terraform validate
+	cd envs/dev && terraform fmt -check
+	@echo "Dev environment validation complete"
+
+check-stage: fmt validate
+	@echo "Full validation for stage environment..."
+	cd envs/stage && terraform init -backend-config=backend.hcl
+	cd envs/stage && terraform validate
+	cd envs/stage && terraform fmt -check
+	@echo "Stage environment validation complete"
+
+check-prod: fmt validate
+	@echo "Full validation for prod environment..."
+	cd envs/prod && terraform init -backend-config=backend.hcl
+	cd envs/prod && terraform validate
+	cd envs/prod && terraform fmt -check
+	@echo "Prod environment validation complete"
+
+check-all: fmt validate lint security
+	@echo "Complete validation passed"

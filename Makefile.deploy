@@ -1,0 +1,78 @@
+# ============================================================================
+# DEPLOYMENT - PLAN & APPLY
+# ============================================================================
+
+.PHONY: plan-dev plan-stage plan-prod apply-dev apply-stage apply-prod verify-deployment-dev
+
+# ============================================================================
+# PLAN
+# ============================================================================
+
+plan-dev:
+	@echo "Planning changes for dev environment..."
+	cd envs/dev && terraform plan -out=tfplan
+	@echo "Plan saved to envs/dev/tfplan"
+
+plan-stage:
+	@echo "Planning changes for stage environment..."
+	cd envs/stage && terraform plan -out=tfplan
+	@echo "Plan saved to envs/stage/tfplan"
+
+plan-prod:
+	@echo "Planning changes for prod environment..."
+	@echo "WARNING: This is PRODUCTION environment"
+	cd envs/prod && terraform plan -out=tfplan
+	@echo "Plan saved to envs/prod/tfplan"
+
+# ============================================================================
+# APPLY
+# ============================================================================
+
+apply-dev:
+	@echo "Applying changes to dev environment..."
+	cd envs/dev && terraform apply tfplan
+	@echo "Dev environment deployed"
+	@$(MAKE) verify-deployment-dev
+
+apply-stage:
+	@echo "Applying changes to stage environment..."
+	@echo "Deploying to STAGE environment"
+	@read -p "Continue? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		cd envs/stage && terraform apply tfplan; \
+		echo "Stage environment deployed"; \
+	else \
+		echo "Deployment cancelled"; \
+		exit 1; \
+	fi
+
+apply-prod:
+	@echo "Applying changes to prod environment..."
+	@echo "WARNING: PRODUCTION DEPLOYMENT"
+	@echo "Current AWS Account: $$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo 'Unknown')"
+	@read -p "Type 'deploy-prod' to confirm: " confirm; \
+	if [ "$$confirm" = "deploy-prod" ]; then \
+		cd envs/prod && terraform apply tfplan; \
+		echo "Production environment deployed"; \
+	else \
+		echo "Deployment cancelled"; \
+		exit 1; \
+	fi
+
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+
+verify-deployment-dev:
+	@echo "Verifying dev deployment..."
+	@cd envs/dev && \
+	echo "Outputs:" && terraform output && \
+	echo "" && \
+	echo "Checking buckets:" && \
+	aws s3 ls 2>/dev/null | grep dp-dev || echo "Warning: No dev buckets found" && \
+	echo "" && \
+	echo "Checking KMS key:" && \
+	KMS_KEY_ID=$$(terraform output -raw kms_key_id 2>/dev/null) && \
+	aws kms describe-key --key-id $$KMS_KEY_ID --query 'KeyMetadata.[KeyId,KeyState,Description]' --output table 2>/dev/null || true
+	@echo "Verification complete"

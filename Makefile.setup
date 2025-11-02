@@ -1,0 +1,50 @@
+# ============================================================================
+# SETUP & INITIALIZATION
+# ============================================================================
+
+.PHONY: init-remote-state init-oidc init-dev init-stage init-prod
+
+init-remote-state:
+	@echo "Bootstrapping remote state infrastructure..."
+	@if [ ! -f global/remote-state/terraform.tfvars ]; then \
+		echo "terraform.tfvars not found. Creating from example..."; \
+		cp global/remote-state/terraform.tfvars.example global/remote-state/terraform.tfvars; \
+		echo "Please edit global/remote-state/terraform.tfvars with your values"; \
+		exit 1; \
+	fi
+	cd global/remote-state && terraform init && terraform plan
+	@echo "Remote state ready. Run 'cd global/remote-state && terraform apply' to create."
+
+init-oidc:
+	@echo "Initializing GitHub OIDC..."
+	@if [ ! -f global/iam_gh_oidc/terraform.tfvars ]; then \
+		echo "terraform.tfvars not found. Creating from example..."; \
+		cp global/iam_gh_oidc/terraform.tfvars.example global/iam_gh_oidc/terraform.tfvars; \
+		echo "Please edit global/iam_gh_oidc/terraform.tfvars with your values"; \
+		exit 1; \
+	fi
+	cd global/iam_gh_oidc && terraform init && terraform plan
+
+init-dev:
+	@echo "Initializing dev environment..."
+	@if [ ! -f envs/dev/terraform.tfvars ]; then \
+		cp envs/dev/terraform.tfvars.example envs/dev/terraform.tfvars; \
+	fi
+	cd envs/dev && terraform init -backend-config=backend.hcl
+	@echo "Dev environment initialized"
+
+init-stage:
+	@echo "Initializing stage environment..."
+	@if [ ! -f envs/stage/terraform.tfvars ]; then \
+		cp envs/stage/terraform.tfvars.example envs/stage/terraform.tfvars; \
+	fi
+	cd envs/stage && terraform init -backend-config=backend.hcl
+	@echo "Stage environment initialized"
+
+init-prod:
+	@echo "Initializing prod environment..."
+	@if [ ! -f envs/prod/terraform.tfvars ]; then \
+		cp envs/prod/terraform.tfvars.example envs/prod/terraform.tfvars; \
+	fi
+	cd envs/prod && terraform init -backend-config=backend.hcl
+	@echo "Prod environment initialized"
