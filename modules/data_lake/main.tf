@@ -10,6 +10,19 @@ terraform {
 
 locals {
   tiers = toset(["raw", "silver", "gold"])
+
+  # Reusable TLS-only policy template
+  tls_policy_statement = {
+    Sid       = "DenyInsecureTransport"
+    Effect    = "Deny"
+    Principal = "*"
+    Action    = "s3:*"
+    Condition = {
+      Bool = {
+        "aws:SecureTransport" = "false"
+      }
+    }
+  }
 }
 
 resource "aws_s3_bucket" "dl" {
@@ -83,21 +96,17 @@ resource "aws_s3_bucket_policy" "policy" {
   for_each = aws_s3_bucket.dl
   bucket   = each.value.id
   policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Sid       = "DenyInsecureTransport",
-      Effect    = "Deny",
-      Principal = "*",
-      Action    = "s3:*",
-      Resource = [
-        each.value.arn,
-        "${each.value.arn}/*"
-      ],
-      Condition = {
-        Bool = {
-          "aws:SecureTransport" = "false"
+    Version = "2012-10-17"
+    Statement = [
+      merge(
+        local.tls_policy_statement,
+        {
+          Resource = [
+            each.value.arn,
+            "${each.value.arn}/*"
+          ]
         }
-      }
-    }]
+      )
+    ]
   })
 }
