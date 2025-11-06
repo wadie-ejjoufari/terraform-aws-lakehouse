@@ -73,7 +73,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: eu-west-1
+          aws-region: eu-west-3
 
       # Terraform validate & plan
       - name: Terraform Init & Validate (dev)
