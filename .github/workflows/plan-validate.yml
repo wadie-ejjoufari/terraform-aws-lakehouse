@@ -124,6 +124,34 @@ jobs:
           fi
           exit $PLAN_EXIT_CODE
 
+      - name: Convert plan to JSON (dev)
+        if: always()
+        working-directory: envs/dev
+        run: terraform show -json tfplan > plan.json
+
+      - name: Setup Infracost CLI
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Infracost JSON from plan.json
+        run: |
+          infracost diff \
+            --path envs/dev/plan.json \
+            --format json \
+            --out-file /tmp/infracost.json
+
+      - name: Post Infracost PR comment (CLI)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          infracost comment github \
+            --path=/tmp/infracost.json \
+            --repo="$GITHUB_REPOSITORY" \
+            --pull-request="${{ github.event.pull_request.number }}" \
+            --github-token="$GITHUB_TOKEN" \
+            --behavior=update
+
       - name: Upload plan artifact
         if: always()
         uses: actions/upload-artifact@v4
