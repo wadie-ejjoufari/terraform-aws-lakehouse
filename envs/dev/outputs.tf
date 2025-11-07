@@ -67,3 +67,18 @@ output "log_bucket_name" {
   description = "Name of the centralized logging bucket"
   value       = module.logs.log_bucket_name
 }
+
+output "glue_database_name" {
+  description = "Name of the Glue Data Catalog database"
+  value       = module.catalog_athena.database_name
+}
+
+output "athena_workgroup_name" {
+  description = "Name of the Athena workgroup"
+  value       = module.catalog_athena.workgroup_name
+}
+
+output "bronze_table_name" {
+  description = "Name of the bronze external table"
+  value       = module.catalog_athena.bronze_table_name
+}

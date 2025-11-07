@@ -63,6 +63,17 @@ Centralized logging infrastructure:
 - 365-day log retention
 - Same KMS encryption as data lake buckets
 
+### Query Layer
+
+Serverless SQL analytics powered by AWS Glue and Athena:
+
+- **Glue Data Catalog:** Centralized metadata repository for all data lake tables
+- **Athena Workgroup:** Secure, encrypted SQL query execution
+- **Partition Projection:** Automatic partition discovery without crawlers
+- **Bronze & Silver Tables:** Pre-defined schemas for GitHub events data
+- **Optimized Storage:** Parquet format for 80% cost reduction vs JSON
+- **Query Results:** Encrypted and stored in centralized logging bucket
+
 ## Prerequisites
 
 - Terraform >= 1.8.0
@@ -164,6 +175,20 @@ terraform output
 #   "silver" = "dp-dev-123456789-silver"
 #   "gold"   = "dp-dev-123456789-gold"
 # }
+# glue_database_name = "dp-dev-lake"
+# athena_workgroup_name = "dp-dev-wg"
+# bronze_table_name = "github_events_bronze"
+```
+
+### 6. Query Data with Athena (Optional)
+
+```bash
+# Example: Query bronze table with partition projection
+aws athena start-query-execution \
+  --query-string "SELECT * FROM github_events_bronze WHERE ingest_dt='2024-01-15' LIMIT 10" \
+  --query-execution-context Database=dp-dev-lake \
+  --work-group dp-dev-wg \
+  --result-configuration OutputLocation=s3://your-logs-bucket/athena-results/
 ```
 
 ## Project Structure
@@ -175,6 +200,7 @@ terraform output
 │   └── iam_gh_oidc/           # GitHub OIDC provider for CI/CD
 ├── modules/
 │   ├── data_lake/             # S3 buckets (raw/silver/gold)
+│   ├── catalog_athena/        # Glue Catalog & Athena resources
 │   ├── observability/         # Centralized logging
 │   └── iam_gh_oidc/           # Reusable IAM OIDC module
 ├── envs/
