@@ -53,6 +53,62 @@
 - No data migration required (existing buckets keep current keys)
 - Future buckets use new shared key
 
+## Real-Time GitHub Events Ingestion
+
+**Decision:** Implement real-time ingestion using Lambda + EventBridge + S3
+
+**Context:** AWS free tier doesn't include Kinesis Firehose or Kinesis Data Streams
+
+**Decision:** Use Lambda to fetch GitHub events every 5 minutes and write directly to S3
+
+**Rationale:**
+
+| Aspect         | Lambda + S3   | Firehose   | Kinesis Streams |
+| -------------- | ------------- | ---------- | --------------- |
+| Free Tier      | Yes           | No         | No              |
+| Setup          | Low           | Medium     | High            |
+| Latency        | 5 min batches | Real-time  | Real-time       |
+| Cost           | ~$2/month     | $26+/month | $25+/month      |
+| GitHub API Fit | Perfect       | Overkill   | Overkill        |
+
+**Constraints:** GitHub public API returns 60 events per call with rate limit of 60 req/hr (unauthenticated). Polling every 5 minutes = 288 requests/day ≈ 10 req/hr average (fits comfortably within free limit).
+
+**Implementation:**
+
+- Lambda function triggers via EventBridge rule every 5 minutes
+- Fetches events from `https://api.github.com/events`
+- Transforms to compressed JSONL format (gzip)
+- Writes to S3 with date-based partitioning: `s3://bucket/github/events/ingest_dt=YYYY-MM-DD/`
+- No message queue needed (single producer, predictable schedule)
+- Partition projection eliminates crawler overhead
+- Module: `modules/github_events_lambda`
+
+**Data Flow:**
+
+```
+GitHub API → Lambda (5min timer) → Transform JSON → Gzip → S3 (Bronze)
+                                                          → Glue Catalog (partition projection)
+                                                          → Athena (SQL queries)
+```
+
+**Cost:** ~$2/month vs $26+/month with Firehose (87% savings)
+
+**Trade-offs:**
+
+| Pro                               | Con                                                |
+| --------------------------------- | -------------------------------------------------- |
+| Free tier eligible                | ~5 min ingestion latency (not real-time)           |
+| Simple, maintainable              | Limited to API polling (can't handle webhooks)     |
+| Highly cost-effective             | GitHub token required for higher rate limits       |
+| Partition projection (no crawler) | File explosion if frequency increases dramatically |
+
+**Future Improvements:**
+
+1. Add GitHub webhook support for immediate ingestion (requires public endpoint)
+2. Implement exponential backoff for API rate limiting
+3. Add dead-letter queue for failed API calls
+4. Support multiple GitHub organizations/repos
+
 ## Query Layer Implementation
 
 **Decision:** Implement Glue Catalog and Athena for SQL-based analytics
@@ -98,7 +154,3 @@
 - All query results encrypted with environment KMS key
 - Workgroup configuration enforced (prevents unencrypted queries)
 - Results stored in observability bucket with same security controls
-
-```
-
-```
