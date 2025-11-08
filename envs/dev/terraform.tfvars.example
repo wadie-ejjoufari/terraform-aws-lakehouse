@@ -5,3 +5,4 @@ data_bucket_prefix   = "datalake"
 enable_glue_catalog  = true
 enable_athena        = true
 kms_arn              = "arn:aws:kms:eu-west-3:<ACCOUNT_ID>:key/<KEY_ID>"
+# gh_token = "ghp_xxx"  # optional
