@@ -258,6 +258,59 @@ The project includes a GitHub Actions workflow that automatically:
 2. Add the role ARN to GitHub repository secrets as `AWS_OIDC_ROLE_ARN`
 3. The workflow will automatically run on pull requests
 
+### Testing the OIDC Configuration
+
+Verify that GitHub OIDC is properly configured:
+
+```bash
+
+# 1. Check if OIDC provider exists
+aws iam list-open-id-connect-providers --output json
+
+# 2. Get the GitHub Actions role ARN
+aws iam get-role --role-name gh-actions-plan-dev --query Role.Arn --output text
+
+# 3. View the role trust policy (OIDC configuration)
+aws iam get-role --role-name gh-actions-plan-dev --query 'Role.AssumeRolePolicyDocument' --output json | jq .
+
+# 4. Check inline policies attached to the role
+aws iam list-role-policies --role-name gh-actions-plan-dev --output json
+
+# 5. View the permissions policy details
+aws iam get-role-policy --role-name gh-actions-plan-dev --policy-name <policy-name> --query PolicyDocument --output json | jq .
+```
+
+**Expected outputs:**
+
+- OIDC provider: `arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com`
+- Role ARN: `arn:aws:iam::ACCOUNT_ID:role/gh-actions-plan-dev`
+- Trust policy includes GitHub repo: `repo:wadie-ejjoufari/terraform-aws-lakehouse:*`
+- Permissions include: `sts:GetCallerIdentity`, `s3:*`, `dynamodb:*`, `cloudwatch:*`, `sns:*`, `budgets:*`, etc.
+
+### Running Terraform Plan & Apply with Local Credentials
+
+Test the infrastructure deployment locally using your AWS credentials:
+
+```bash
+
+# Navigate to dev environment
+cd envs/dev
+
+# Initialize Terraform (one-time per environment)
+terraform init -backend-config=backend.hcl
+
+# Run plan to see what changes are needed
+terraform plan -no-color
+
+# View outputs (buckets, KMS keys, Lambda functions, etc.)
+terraform output
+
+# Apply changes (only if plan shows changes)
+# terraform apply -auto-approve
+```
+
+**⚠️ Note:** The GitHub Actions CI uses read-only credentials for planning. If you have write permissions locally, you can apply changes, but CI will only generate plans for PR reviews.
+
 ## Development Setup
 
 ### Quick Setup with Makefile

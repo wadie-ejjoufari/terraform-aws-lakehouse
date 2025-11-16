@@ -40,7 +40,7 @@ locals {
       { Effect = "Allow", Action = [
         "kms:List*", "kms:Describe*", "kms:GetKeyRotationStatus", "kms:GetKeyPolicy",
         "ec2:Describe*",
-        "logs:Describe*", "logs:List*", "cloudwatch:Describe*",
+        "logs:Describe*", "logs:List*", "cloudwatch:Describe*", "cloudwatch:GetDashboard", "cloudwatch:ListTagsForResource",
         "events:Describe*", "events:List*",
         "lambda:GetFunction", "lambda:GetFunctionCodeSigningConfig", "lambda:GetPolicy", "lambda:List*",
         "glue:Get*", "glue:List*", "athena:Get*", "athena:List*",
@@ -48,7 +48,9 @@ locals {
         "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning",
         "s3:GetBucketLogging", "s3:GetLifecycleConfiguration",
         "s3:GetBucketPolicy", "s3:GetEncryptionConfiguration",
-        "s3:GetBucketTagging", "s3:GetBucketLocation"
+        "s3:GetBucketTagging", "s3:GetBucketLocation",
+        "budgets:ViewBudget", "budgets:DescribeBudget", "budgets:ListTagsForResource",
+        "sns:GetTopicAttributes", "sns:List*", "sns:Get*"
       ], Resource = "*" },
       # KMS encrypt/decrypt for state files (encrypted with KMS)
       {
