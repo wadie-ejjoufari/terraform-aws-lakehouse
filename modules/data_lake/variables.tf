@@ -35,3 +35,15 @@ variable "tier_glacier_days" {
   type        = number
   default     = 180
 }
+
+variable "enable_monitoring" {
+  description = "Enable CloudWatch monitoring and alarms"
+  type        = bool
+  default     = true
+}
+
+variable "alarm_topic_arn" {
+  description = "SNS topic ARN for alarm notifications"
+  type        = string
+  default     = ""
+}
