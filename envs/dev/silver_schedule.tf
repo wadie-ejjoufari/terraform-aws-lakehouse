@@ -24,11 +24,14 @@ module "silver_scheduler" {
   database        = module.catalog_athena.database_name
   workgroup       = module.catalog_athena.workgroup_name
   query_sql       = local.silver_insert_sql
-  schedule        = "rate(1 hour)" # Change to "rate(15 minutes)" for more frequent runs
+  schedule        = "rate(1 hour)"
   output_location = "s3://dp-dev-athena-results/silver-scheduler/"
   kms_key_arn     = aws_kms_key.s3.arn
+  tags            = local.tags
 
-  tags = local.tags
+  # Monitoring
+  enable_monitoring = true
+  alarm_topic_arn   = module.logs.critical_alerts_topic_arn
 }
 
 # Outputs for monitoring
