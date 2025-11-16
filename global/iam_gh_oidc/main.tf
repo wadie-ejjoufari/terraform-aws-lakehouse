@@ -42,7 +42,7 @@ locals {
         "ec2:Describe*",
         "logs:Describe*", "logs:List*", "cloudwatch:Describe*",
         "events:Describe*", "events:List*",
-        "lambda:GetFunction", "lambda:List*",
+        "lambda:GetFunction", "lambda:GetFunctionCodeSigningConfig", "lambda:GetPolicy", "lambda:List*",
         "glue:Get*", "glue:List*", "athena:Get*", "athena:List*",
         "iam:List*", "iam:Get*",
         "s3:GetBucketPublicAccessBlock", "s3:GetBucketVersioning",
