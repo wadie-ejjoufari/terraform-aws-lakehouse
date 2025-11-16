@@ -38,8 +38,9 @@ resource "aws_glue_catalog_table" "github_events_bronze" {
   parameters = {
     classification                = "json"
     "projection.enabled"          = "true"
-    "projection.ingest_dt.format" = "yyyy-MM-dd"
     "projection.ingest_dt.type"   = "date"
+    "projection.ingest_dt.range"  = "2024-01-01,NOW"
+    "projection.ingest_dt.format" = "yyyy-MM-dd"
     "storage.location.template"   = "s3://${var.raw_bucket}/github/events/ingest_dt=$${ingest_dt}/"
     has_encrypted_data            = "true"
   }

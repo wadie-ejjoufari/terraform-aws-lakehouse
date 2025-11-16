@@ -1,60 +1,122 @@
-import os, json, gzip
-from datetime import datetime
-import urllib.request
+# ingestion.py
+import os, json, gzip, time, hashlib
+from datetime import datetime, timezone
+import urllib.request, urllib.error
 import boto3
 
-S3_BUCKET = os.environ.get("S3_BUCKET")
+S3_BUCKET = os.environ["S3_BUCKET"]
 S3_PREFIX = os.environ.get("S3_PREFIX", "github/events")
-LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 GH_TOKEN  = os.environ.get("GH_TOKEN", "")
 
 s3 = boto3.client("s3")
 
-API = "https://api.github.com/events"  # public events
+API = "https://api.github.com/events"  # latest 30 public events
 UA  = "terraform-aws-lakehouse-ingestor"
 
-def fetch_events():
-    req = urllib.request.Request(API, headers={"User-Agent": UA})
-    if GH_TOKEN:
-        req.add_header("Authorization", f"Bearer {GH_TOKEN}")
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = resp.read()
-        events = json.loads(data)
-        return events
+# Simple state in-memory per container lifetime (ok for Lambda warm starts)
+ETAG = None
+LAST_MOD = None
 
-# Convert GH event to a compact JSON line suitable for S3 Bronze
+def http_get_with_retries(url, headers, max_attempts=4):
+    backoff = 1.0
+    for attempt in range(1, max_attempts + 1):
+        req = urllib.request.Request(url, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return resp
+        except urllib.error.HTTPError as e:
+            # Respect rate limit 403/429 with Retry-After if present
+            if e.code in (429, 500, 502, 503, 504) or e.code == 403:
+                retry_after = float(e.headers.get("Retry-After", "0") or 0)
+                sleep_for = retry_after if retry_after > 0 else backoff
+                if attempt == max_attempts:
+                    raise
+                time.sleep(sleep_for)
+                backoff *= 2
+            else:
+                raise
+        except urllib.error.URLError:
+            if attempt == max_attempts:
+                raise
+            time.sleep(backoff)
+            backoff *= 2
+
+def fetch_events():
+    global ETAG, LAST_MOD
+    headers = {"User-Agent": UA, "Accept": "application/vnd.github+json"}
+    if GH_TOKEN:
+        headers["Authorization"] = f"Bearer {GH_TOKEN}"
+    if ETAG:
+        headers["If-None-Match"] = ETAG
+    if LAST_MOD:
+        headers["If-Modified-Since"] = LAST_MOD
+
+    resp = http_get_with_retries(API, headers)
+    status = getattr(resp, "status", 200)
+    if status == 304:
+        return []  # nothing new
+
+    data = resp.read()
+    ETAG = resp.headers.get("ETag", ETAG)
+    LAST_MOD = resp.headers.get("Last-Modified", LAST_MOD)
+    try:
+        events = json.loads(data)
+        if not isinstance(events, list):
+            return []
+        return events
+    except json.JSONDecodeError:
+        return []
+
 def to_jsonl(event):
-    repo = event.get("repo", {})
-    actor = event.get("actor", {})
+    repo = event.get("repo") or {}
+    actor = event.get("actor") or {}
+
+    # Minimal validation
+    ev_id = event.get("id")
+    ev_type = event.get("type")
+    created_at = event.get("created_at")
+    repo_name = repo.get("name")
+    actor_login = actor.get("login")
+    if not (ev_id and ev_type and created_at and repo_name and actor_login):
+        return None
+
     return json.dumps({
-        "id": event.get("id"),
-        "type": event.get("type"),
-        "created_at": event.get("created_at"),
+        "id": ev_id,
+        "type": ev_type,
+        "created_at": created_at,                 # ISO8601 string
         "repo_id": repo.get("id"),
-        "repo_name": repo.get("name"),
+        "repo_name": repo_name,
         "actor_id": actor.get("id"),
-        "actor_login": actor.get("login"),
-        # optionally keep raw payload: "payload_raw": json.dumps(event.get("payload", {}))
-    })
+        "actor_login": actor_login,
+        # keep column present in Glue; fill when you need it:
+        "payload_raw": None
+    }, ensure_ascii=False)
 
 def lambda_handler(event, context):
     events = fetch_events()
-
-    # Create JSONL content
-    jsonl_lines = []
+    kept = []
     for ev in events:
-        jsonl_lines.append(to_jsonl(ev))
+        line = to_jsonl(ev)
+        if line:
+            kept.append(line)
 
-    jsonl_content = "\n".join(jsonl_lines) + "\n"
+    if not kept:
+        if LOG_LEVEL == "INFO":
+            print("No new events or nothing valid to write")
+        return {"ok": True, "sent": 0}
 
-    # Compress with gzip
+    jsonl_content = "\n".join(kept) + "\n"
     compressed_data = gzip.compress(jsonl_content.encode("utf-8"))
 
-    # Generate S3 key with timestamp partitioning
-    now = datetime.utcnow()
-    s3_key = f"{S3_PREFIX}/ingest_dt={now.strftime('%Y-%m-%d')}/{now.strftime('%Y%m%d-%H%M%S')}-{context.aws_request_id}.json.gz"
+    now = datetime.now(timezone.utc)
+    # stable key includes a digest to avoid collisions across parallel invokes
+    digest = hashlib.sha1(jsonl_content.encode("utf-8")).hexdigest()[:10]
+    s3_key = (
+        f"{S3_PREFIX}/ingest_dt={now.strftime('%Y-%m-%d')}/"
+        f"{now.strftime('%Y%m%d-%H%M%S')}-{context.aws_request_id[:8]}-{digest}.json.gz"
+    )
 
-    # Upload to S3
     s3.put_object(
         Bucket=S3_BUCKET,
         Key=s3_key,
@@ -64,6 +126,5 @@ def lambda_handler(event, context):
     )
 
     if LOG_LEVEL == "INFO":
-        print(f"Uploaded {len(events)} events to s3://{S3_BUCKET}/{s3_key}")
-
-    return {"ok": True, "sent": len(events), "s3_key": s3_key}
+        print(f"Uploaded {len(kept)} events to s3://{S3_BUCKET}/{s3_key}")
+    return {"ok": True, "sent": len(kept), "s3_key": s3_key}
