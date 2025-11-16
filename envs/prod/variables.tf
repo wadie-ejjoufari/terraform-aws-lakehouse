@@ -34,3 +34,9 @@ variable "enable_athena" {
   type        = bool
   default     = true
 }
+
+variable "gh_token" {
+  description = "GitHub personal access token for accessing repository events"
+  type        = string
+  default     = ""
+}

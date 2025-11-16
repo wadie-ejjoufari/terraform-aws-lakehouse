@@ -68,6 +68,24 @@ module "logs" {
   name_prefix = "dp-stage-${local.account_id}"
   kms_key_id  = aws_kms_key.s3.arn
   tags        = local.tags
+
+  # Monitoring configuration
+  enable_alerting        = true
+  enable_cost_monitoring = true
+  enable_dashboard       = true
+  monthly_budget_limit   = "50"
+  budget_alert_emails    = [] # Add your email
+
+  # Dashboard configuration
+  lambda_function_names = [
+    module.gh_lambda.lambda_name,
+    module.silver_scheduler.lambda_name
+  ]
+  bucket_names = [
+    module.data_lake.bucket_names["raw"],
+    module.data_lake.bucket_names["silver"],
+    module.data_lake.bucket_names["gold"]
+  ]
 }
 
 module "data_lake" {
@@ -79,4 +97,8 @@ module "data_lake" {
   tier_ia_days      = 30
   tier_glacier_days = 180
   expiration_days   = 730
+
+  # Monitoring
+  enable_monitoring = true
+  alarm_topic_arn   = module.logs.critical_alerts_topic_arn
 }
