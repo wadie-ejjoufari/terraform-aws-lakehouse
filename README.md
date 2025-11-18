@@ -2,18 +2,28 @@
 
 Production-ready AWS Data Lakehouse infrastructure as code using Terraform.
 
-## Architecture
+## Status
 
-A modern data lakehouse implementation on AWS featuring:
+- (done) Remote state & locking
+- (done) OIDC + CI (plan on PR)
+- (done) Data Lake buckets (Bronze/Silver/Gold)
+- (done) Glue Catalog + Athena (KMS)
+- (done) Real-time ingestion (Lambda -> S3 Bronze)
+- (done) Scheduled Silver transform (Athena)
+- (done) Observability & drift
+- (done) Gold analytics layer & demo queries
 
-- **S3** for data lake storage (Bronze/Silver/Gold layers)
-- **AWS Glue** for data catalog and ETL
-- **Amazon Athena** for SQL analytics
-- **Lake Formation** for data governance
-- **IAM** for fine-grained access control
-- **KMS** for encryption at rest with automatic key rotation
+## Architecture Overview
 
-See [docs/architecture.md](docs/architecture.md) for detailed architecture.
+- **Ingestion (Bronze)**: Python Lambda polls GitHub Public Events API and writes JSONL files to `s3://<env>-raw/github/events/ingest_dt=YYYY-MM-DD/`.
+- **Storage (Bronze/Silver/Gold)**: Tiered S3 buckets with SSE-KMS, versioning, lifecycle, and access logging.
+- **Metadata & Query**: Glue Catalog + Athena workgroup (KMS-encrypted results) with schema for Bronze, Silver, Gold.
+- **Transform (Silver)**: Scheduled Athena `INSERT` job that parses/cleans Bronze into a partitioned Parquet Silver table.
+- **Transform (Gold)**: Scheduled Athena `INSERT` job aggregating Silver into daily stats by repo and event type.
+- **Observability**: CloudWatch alarms on ingest/transform errors, log metric filters for Athena failures.
+- **Governance & CI**: Terraform modules, remote state, GitHub Actions with OIDC, pre-commit, linting, drift detection, and optional Infracost.
+
+See [docs/architecture.md](docs/architecture.md) for detailed architecture and [docs/datasets.md](docs/datasets.md) for data layer details.
 
 ## Features
 

@@ -36,43 +36,77 @@ This project implements a modern data lakehouse on AWS, combining the best featu
 ## Architecture Diagram
 
 ```
-┌─────────────┐
-│   Sources   │
-└──────┬──────┘
-       │
-       v
-┌─────────────────────────────────┐
-│     Bronze Layer (S3)           │
-│  Raw Data / Landing Zone        │
-└────────────┬────────────────────┘
-             │
-        Glue Crawlers
-             │
-             v
-┌─────────────────────────────────┐
-│     Silver Layer (S3)           │
-│  Cleaned & Validated Data       │
-└────────────┬────────────────────┘
-             │
-        Glue ETL Jobs
-             │
-             v
-┌─────────────────────────────────┐
-│      Gold Layer (S3)            │
-│  Aggregated Business Data       │
-└────────────┬────────────────────┘
-             │
-             v
-    ┌────────────────────┐
-    │  Glue Data Catalog │
-    └────────────────────┘
-             │
-             v
-    ┌────────────────────┐
-    │  Amazon Athena     │
-    │  (Query Engine)    │
-    └────────────────────┘
+┌─────────────────────────────────────────┐
+│   GitHub Public Events API              │
+└────────────────────┬────────────────────┘
+                     │
+                Lambda (Scheduled)
+                     │
+                     v
+┌─────────────────────────────────────────┐
+│   Bronze Layer (S3)                     │
+│   Raw JSONL Data                        │
+│   s3://<env>-raw/github/events/         │
+│   ingest_dt=YYYY-MM-DD/                 │
+└────────────────────┬────────────────────┘
+                     │
+            Athena INSERT (Hourly)
+                     │
+                     v
+┌─────────────────────────────────────────┐
+│   Silver Layer (S3)                     │
+│   Parsed & Validated Parquet            │
+│   s3://<env>-silver/github/events_      │
+│   silver/year=YYYY/month=MM/            │
+│   Columns: event_id, event_type,        │
+│   event_date, repo_name, actor_login    │
+└────────────────────┬────────────────────┘
+                     │
+            Athena INSERT (Daily)
+                     │
+                     v
+┌─────────────────────────────────────────┐
+│   Gold Layer (S3)                       │
+│   Aggregated Analytics Data             │
+│   s3://<env>-gold/github/               │
+│   events_gold_daily/ingest_dt=YYYY-MM-DD│
+│   Columns: ingest_dt, event_type,       │
+│   repo_name, events_count               │
+└────────────────────┬────────────────────┘
+                     │
+                     v
+        ┌────────────────────────┐
+        │  AWS Glue Catalog      │
+        │  (Metadata Registry)   │
+        └────────────┬───────────┘
+                     │
+                     v
+        ┌────────────────────────┐
+        │  Amazon Athena         │
+        │  (SQL Query Engine)    │
+        │  with KMS Encryption   │
+        └────────────────────────┘
 ```
+
+## Data Flow
+
+1. **Ingestion**: GitHub Events Lambda runs hourly, pulls latest events from GitHub Public Events API, writes raw JSONL to Bronze
+2. **Silver Transform**: Hourly scheduled Athena job runs `INSERT INTO github_events_silver SELECT ...` from Bronze
+3. **Gold Transform**: Daily scheduled Athena job runs `INSERT INTO github_events_gold_daily SELECT ...` from Silver, aggregating by event type and repo
+4. **Query**: Users query Bronze, Silver, or Gold via Athena based on use case:
+   - **Bronze**: Raw data exploration, debugging
+   - **Silver**: Cleaned data, fact tables
+   - **Gold**: Business-ready analytics, dashboards
+
+## Data Catalog
+
+All three tables are registered in **AWS Glue Data Catalog**:
+
+| Table                      | Layer     | Format  | Partitioning       | Retention |
+| -------------------------- | --------- | ------- | ------------------ | --------- |
+| `github_events_bronze`     | Raw       | JSONL   | `ingest_dt` (date) | 730 days  |
+| `github_events_silver`     | Clean     | Parquet | `year`, `month`    | 730 days  |
+| `github_events_gold_daily` | Analytics | Parquet | `ingest_dt` (date) | 730 days  |
 
 ## Security Model
 
