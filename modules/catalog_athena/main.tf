@@ -148,3 +148,50 @@ resource "aws_glue_catalog_table" "github_events_silver" {
     type = "string"
   }
 }
+
+# Gold: daily aggregates of events per repo & type
+resource "aws_glue_catalog_table" "github_events_gold_daily" {
+  name          = "github_events_gold_daily"
+  database_name = aws_glue_catalog_database.db.name
+  table_type    = "EXTERNAL_TABLE"
+
+  parameters = {
+    classification     = "parquet"
+    has_encrypted_data = "true"
+  }
+
+  storage_descriptor {
+    location      = "s3://${var.gold_bucket}/github/events_gold_daily/"
+    input_format  = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
+    output_format = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat"
+
+    ser_de_info {
+      name                  = "parquet"
+      serialization_library = "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+    }
+
+    columns {
+      name = "ingest_dt"
+      type = "date"
+    }
+    columns {
+      name = "event_type"
+      type = "string"
+    }
+    columns {
+      name = "repo_name"
+      type = "string"
+    }
+    columns {
+      name = "events_count"
+      type = "bigint"
+    }
+
+    compressed = true
+  }
+
+  partition_keys {
+    name = "ingest_dt"
+    type = "date"
+  }
+}
