@@ -43,45 +43,34 @@ LIMIT 10;
 
 **Table Name:** `github_events_silver`
 
-**Location:** `s3://<env>-silver/github/events_silver/year=YYYY/month=MM/`
+**Location:** `s3://<env>-<account-id>-silver/github/events_silver/year=YYYY/month=MM/`
 
 **Format:** Parquet (columnar, compressed)
 
-**Partitioning:** `year` (YYYY), `month` (MM) - derived from `event_date`
+**Partitioning:** `year` (YYYY), `month` (MM) — derived from parsed `created_at`
 
 **Columns:**
 
-| Column        | Type   | Description                            |
-| ------------- | ------ | -------------------------------------- |
-| `event_id`    | string | GitHub event ID (from Bronze.id)       |
-| `event_type`  | string | Event type (cleaned from Bronze.type)  |
-| `event_date`  | date   | Date of event (parsed from created_at) |
-| `repo_name`   | string | Repository name (org/repo)             |
-| `actor_login` | string | Username of event creator              |
+| Column        | Type   | Description                               |
+| ------------- | ------ | ----------------------------------------- |
+| `event_id`    | string | GitHub event ID (from Bronze.id)          |
+| `event_type`  | string | Event type (from Bronze.type, normalized) |
+| `event_date`  | date   | Date of event (parsed from created_at)    |
+| `repo_name`   | string | Repository name (org/repo)                |
+| `actor_login` | string | Username of event creator                 |
+| `year`        | string | Partition: year (YYYY)                    |
+| `month`       | string | Partition: month (MM)                     |
 
 **Retention:** 730 days (2 years)
 
 **Data Quality:**
 
-- All nulls validated and handled
-- Timestamps parsed to ISO 8601 dates
-- Duplicates removed per event ID
-- Parquet format provides compression (80% smaller than raw JSON)
+- Timestamps parsed from ISO 8601 strings
+- Data stored in Parquet (80% smaller than JSON)
+- Partitioned by year/month for efficient querying
+- Duplicates within day are not actively removed (rely on application logic)
 
-**Access Pattern:** Fact tables, detailed analysis by repo/actor/type, time-series analysis
-
-**Example Query:**
-
-```sql
--- Count events per type for a specific month
-SELECT
-  event_type,
-  COUNT(*) as event_count
-FROM github_events_silver
-WHERE year = '2024' AND month = '01'
-GROUP BY event_type
-ORDER BY event_count DESC;
-```
+**Access Pattern:** Detailed analysis by repo/actor/type, time-series trends by month/year
 
 **Transform Logic (Athena Scheduled INSERT):**
 
@@ -100,13 +89,27 @@ FROM github_events_bronze
 WHERE ingest_dt = date_format(current_date, '%Y-%m-%d');
 ```
 
+**Example Query:**
+
+```sql
+-- Count events per type for current month
+SELECT
+  event_type,
+  COUNT(*) as event_count
+FROM github_events_silver
+WHERE year = date_format(current_date, '%Y')
+  AND month = date_format(current_date, '%m')
+GROUP BY event_type
+ORDER BY event_count DESC;
+```
+
 ---
 
 ## Gold Layer (Analytics-Ready Aggregates)
 
 **Table Name:** `github_events_gold_daily`
 
-**Location:** `s3://<env>-gold/github/events_gold_daily/ingest_dt=YYYY-MM-DD/`
+**Location:** `s3://<env>-<account-id>-gold/github/events_gold_daily/ingest_dt=YYYY-MM-DD/`
 
 **Format:** Parquet (columnar, compressed)
 
@@ -114,22 +117,38 @@ WHERE ingest_dt = date_format(current_date, '%Y-%m-%d');
 
 **Columns:**
 
-| Column         | Type   | Description                           |
-| -------------- | ------ | ------------------------------------- |
-| `ingest_dt`    | date   | Date of the aggregated data           |
-| `event_type`   | string | Type of GitHub event                  |
-| `repo_name`    | string | Repository name (org/repo)            |
-| `events_count` | bigint | Number of events for this combination |
+| Column         | Type   | Description                                   |
+| -------------- | ------ | --------------------------------------------- |
+| `ingest_dt`    | date   | Date of aggregated data (partition key)       |
+| `event_type`   | string | Type of GitHub event                          |
+| `repo_name`    | string | Repository name (org/repo)                    |
+| `events_count` | bigint | Count of events for this date/type/repo combo |
 
 **Retention:** 730 days (2 years)
 
-**Aggregation Level:** Daily aggregates by event type and repository
+**Aggregation Level:** Daily, grouped by event type and repository
 
-**Access Pattern:** Dashboards, analytics, reporting, KPI tracking
+**Access Pattern:** Dashboards, analytics, reporting, KPI tracking, time-series trends
 
-**Example Queries:**
+**Transform Logic (Athena Scheduled INSERT):**
 
-### 1. Top Event Types (Today)
+```sql
+INSERT INTO github_events_gold_daily
+SELECT
+  ingest_dt,
+  type        AS event_type,
+  repo_name,
+  COUNT(*)    AS events_count
+FROM github_events_silver
+WHERE ingest_dt = date_format(current_date, '%Y-%m-%d')
+GROUP BY ingest_dt, type, repo_name;
+```
+
+Note: The query references `ingest_dt` from Silver (which is derived during Silver load from Bronze's `ingest_dt` partition).
+
+**Example Analytics Queries:**
+
+### Top Event Types (Today)
 
 ```sql
 SELECT
@@ -142,7 +161,7 @@ ORDER BY total_events DESC
 LIMIT 10;
 ```
 
-### 2. Top Active Repositories (Today)
+### Top Active Repositories (Today)
 
 ```sql
 SELECT
@@ -155,7 +174,7 @@ ORDER BY total_events DESC
 LIMIT 10;
 ```
 
-### 3. Event Trend (Last 7 Days)
+### Event Trend (Last 7 Days)
 
 ```sql
 SELECT
@@ -167,7 +186,7 @@ GROUP BY ingest_dt
 ORDER BY ingest_dt;
 ```
 
-### 4. Repository Trend (Top 5, Last 30 Days)
+### Top 5 Repositories (Last 30 Days)
 
 ```sql
 WITH top_repos AS (
@@ -187,20 +206,6 @@ WHERE ingest_dt >= date_add('day', -30, current_date)
   AND repo_name IN (SELECT repo_name FROM top_repos)
 GROUP BY ingest_dt, repo_name
 ORDER BY ingest_dt DESC, repo_name;
-```
-
-**Transform Logic (Athena Scheduled INSERT):**
-
-```sql
-INSERT INTO github_events_gold_daily
-SELECT
-  ingest_dt,
-  type        AS event_type,
-  repo_name,
-  COUNT(*)    AS events_count
-FROM github_events_silver
-WHERE ingest_dt = date_format(current_date, '%Y-%m-%d')
-GROUP BY ingest_dt, type, repo_name;
 ```
 
 ---
