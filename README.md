@@ -379,6 +379,75 @@ terraform output
 
 **⚠️ Note:** The GitHub Actions CI uses read-only credentials for planning. If you have write permissions locally, you can apply changes, but CI will only generate plans for PR reviews.
 
+## How to Demo
+
+This project is designed to be demonstrated clearly in 3–5 minutes:
+
+### 1. Show the Architecture
+
+Point to the architecture diagram in the README or [docs/architecture.md](docs/architecture.md):
+
+- **Lambda** → **Bronze (S3)** → Ingestion from GitHub Public Events API
+- **Athena** → **Silver (S3)** → Daily scheduled transforms
+- **Athena** → **Gold (S3)** → Aggregated analytics layer
+
+### 2. Run Live Demo Queries
+
+Open the Athena console or run via AWS CLI:
+
+**Top event types (today):**
+
+```sql
+SELECT event_type, SUM(events_count) AS total_events
+FROM github_events_gold_daily
+WHERE ingest_dt = date_format(current_date, '%Y-%m-%d')
+GROUP BY event_type
+ORDER BY total_events DESC
+LIMIT 10;
+```
+
+**Top 10 active repositories (today):**
+
+```sql
+SELECT repo_name, SUM(events_count) AS total_events
+FROM github_events_gold_daily
+WHERE ingest_dt = date_format(current_date, '%Y-%m-%d')
+GROUP BY repo_name
+ORDER BY total_events DESC
+LIMIT 10;
+```
+
+**Trend of total events per day (last 7 days):**
+
+```sql
+SELECT ingest_dt, SUM(events_count) AS total_events
+FROM github_events_gold_daily
+WHERE ingest_dt >= date_add('day', -7, current_date)
+GROUP BY ingest_dt
+ORDER BY ingest_dt;
+```
+
+### 3. Show the Code
+
+- **Terraform modules**: `modules/data_lake/`, `modules/catalog_athena/`, `modules/athena_scheduler/`
+- **Lambda ingestion**: `modules/github_events_lambda/src/handler.py`
+- **Scheduler logic**: `modules/athena_scheduler/src/handler.py`
+
+Highlight that:
+
+- Infrastructure is fully codified (reproducible, auditable, versionable)
+- No manual AWS console clicks for the core setup
+- Everything has monitoring (CloudWatch logs, SNS alerts, dashboards)
+
+### 4. Show CI/CD & Safety
+
+- **Plan on PR**: GitHub Actions validates and estimates costs before merge
+- **Drift detection**: Nightly checks ensure actual == desired state
+- **Security**: Pre-commit hooks, TFLint, Checkov, Trivy scans
+- **Cost awareness**: Infracost estimates for every PR
+
+---
+
 ## Development Setup
 
 ### Quick Setup with Makefile
