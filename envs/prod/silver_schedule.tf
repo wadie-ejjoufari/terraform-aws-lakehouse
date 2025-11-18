@@ -2,13 +2,14 @@
 locals {
   silver_insert_sql = <<-SQL
     INSERT INTO github_events_silver
-      (event_id, event_type, event_date, repo_name, actor_login, year, month)
+      (event_id, event_type, event_date, repo_name, actor_login, ingest_dt, year, month)
     SELECT
       CAST(id AS varchar) AS event_id,
       CAST(type AS varchar) AS event_type,
       DATE(from_iso8601_timestamp(created_at)) AS event_date,
       CAST(repo_name AS varchar) AS repo_name,
       CAST(actor_login AS varchar) AS actor_login,
+      DATE(from_iso8601_timestamp(created_at)) AS ingest_dt,
       CAST(date_format(from_iso8601_timestamp(created_at), '%Y') AS varchar) AS year,
       CAST(date_format(from_iso8601_timestamp(created_at), '%m') AS varchar) AS month
     FROM github_events_bronze
