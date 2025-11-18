@@ -13,6 +13,11 @@ variable "silver_bucket" {
   type        = string
 }
 
+variable "gold_bucket" {
+  description = "S3 bucket name for gold layer data"
+  type        = string
+}
+
 variable "athena_results_bucket" {
   description = "S3 bucket name for Athena query results"
   type        = string

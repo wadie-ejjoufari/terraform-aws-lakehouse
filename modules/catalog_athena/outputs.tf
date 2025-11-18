@@ -12,3 +12,13 @@ output "bronze_table_name" {
   description = "Name of the bronze layer Glue catalog table"
   value       = aws_glue_catalog_table.github_events_bronze.name
 }
+
+output "silver_table_name" {
+  description = "Name of the silver layer Glue catalog table"
+  value       = aws_glue_catalog_table.github_events_silver.name
+}
+
+output "gold_table_name" {
+  description = "Name of the gold layer Glue catalog table"
+  value       = aws_glue_catalog_table.github_events_gold_daily.name
+}

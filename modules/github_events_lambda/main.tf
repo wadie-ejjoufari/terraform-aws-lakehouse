@@ -60,7 +60,7 @@ resource "aws_cloudwatch_event_target" "invoke" {
 resource "aws_lambda_permission" "allow_events" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.fn.arn
+  function_name = aws_lambda_function.fn.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.schedule.arn
 }
