@@ -3,6 +3,7 @@ module "catalog_athena" {
   name_prefix           = "dp-stage"
   raw_bucket            = module.data_lake.bucket_names["raw"]
   silver_bucket         = module.data_lake.bucket_names["silver"]
+  gold_bucket           = module.data_lake.bucket_names["gold"]
   athena_results_bucket = module.logs.log_bucket_name
   kms_key_arn           = aws_kms_key.s3.arn
   tags                  = local.tags
