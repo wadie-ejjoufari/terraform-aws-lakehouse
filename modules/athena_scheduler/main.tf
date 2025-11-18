@@ -21,7 +21,7 @@ data "archive_file" "zip" {
 
 # IAM role for Lambda
 resource "aws_iam_role" "lambda" {
-  name = "${var.name_prefix}-silver-scheduler-role"
+  name = "${var.name_prefix}-${var.job_name}-scheduler-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -99,7 +99,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
 
 # Lambda function
 resource "aws_lambda_function" "fn" {
-  function_name    = "${var.name_prefix}-silver-scheduler"
+  function_name    = "${var.name_prefix}-${var.job_name}-scheduler"
   role             = aws_iam_role.lambda.arn
   handler          = "handler.lambda_handler"
   runtime          = "python3.11"
@@ -129,8 +129,8 @@ resource "aws_cloudwatch_log_group" "lambda" {
 
 # EventBridge schedule rule
 resource "aws_cloudwatch_event_rule" "schedule" {
-  name                = "${var.name_prefix}-silver-hourly"
-  description         = "Trigger Silver layer transformation"
+  name                = "${var.name_prefix}-${var.job_name}-hourly"
+  description         = "Trigger ${var.job_name} layer transformation"
   schedule_expression = var.schedule
   tags                = var.tags
 }
@@ -144,7 +144,7 @@ resource "aws_cloudwatch_event_target" "invoke" {
 
 # Lambda permission for EventBridge
 resource "aws_lambda_permission" "allow_events" {
-  statement_id  = "AllowExecutionFromEventBridge"
+  statement_id  = "AllowExecutionFromEventBridge-${aws_cloudwatch_event_rule.schedule.name}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.fn.function_name
   principal     = "events.amazonaws.com"

@@ -3,6 +3,12 @@ variable "name_prefix" {
   description = "Prefix for resource names"
 }
 
+variable "job_name" {
+  type        = string
+  description = "Name of the scheduling job (e.g., 'silver', 'gold')"
+  default     = "silver"
+}
+
 variable "database" {
   type        = string
   description = "Athena/Glue database name"

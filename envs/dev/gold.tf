@@ -18,6 +18,7 @@ module "gold_scheduler" {
   source = "../../modules/athena_scheduler"
 
   name_prefix     = "dp-dev"
+  job_name        = "gold"
   database        = module.catalog_athena.database_name
   workgroup       = module.catalog_athena.workgroup_name
   query_sql       = local.gold_insert_sql

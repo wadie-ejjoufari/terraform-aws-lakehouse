@@ -1,7 +1,7 @@
-# CloudWatch alarm for Silver transformation errors
+# CloudWatch alarm for transformation errors
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   count               = var.enable_monitoring ? 1 : 0
-  alarm_name          = "${var.name_prefix}-silver-scheduler-errors"
+  alarm_name          = "${var.name_prefix}-${var.job_name}-scheduler-errors"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = 2
   metric_name         = "Errors"
@@ -9,7 +9,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
   period              = 3600 # 1 hour
   statistic           = "Sum"
   threshold           = 2
-  alarm_description   = "Silver transformation Lambda has errors"
+  alarm_description   = "${var.job_name} transformation Lambda has errors"
   treat_missing_data  = "notBreaching"
 
   dimensions = {
