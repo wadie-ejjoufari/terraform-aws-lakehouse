@@ -58,6 +58,7 @@ LIMIT 10;
 | `event_date`  | date   | Date of event (parsed from created_at)    |
 | `repo_name`   | string | Repository name (org/repo)                |
 | `actor_login` | string | Username of event creator                 |
+| `ingest_dt`   | date   | Ingestion date (from Bronze.ingest_dt)    |
 | `year`        | string | Partition: year (YYYY)                    |
 | `month`       | string | Partition: month (MM)                     |
 
@@ -76,13 +77,14 @@ LIMIT 10;
 
 ```sql
 INSERT INTO github_events_silver
-  (event_id, event_type, event_date, repo_name, actor_login, year, month)
+  (event_id, event_type, event_date, repo_name, actor_login, ingest_dt, year, month)
 SELECT
   CAST(id AS varchar) AS event_id,
   CAST(type AS varchar) AS event_type,
   DATE(from_iso8601_timestamp(created_at)) AS event_date,
   CAST(repo_name AS varchar) AS repo_name,
   CAST(actor_login AS varchar) AS actor_login,
+  DATE(from_iso8601_timestamp(created_at)) AS ingest_dt,
   CAST(date_format(from_iso8601_timestamp(created_at), '%Y') AS varchar) AS year,
   CAST(date_format(from_iso8601_timestamp(created_at), '%m') AS varchar) AS month
 FROM github_events_bronze
@@ -224,11 +226,11 @@ ORDER BY ingest_dt DESC, repo_name;
 
 ## Scheduling
 
-| Layer  | Job Name         | Schedule    | Dependency       | Typical Duration |
-| ------ | ---------------- | ----------- | ---------------- | ---------------- |
-| Bronze | GitHub Lambda    | Hourly      | GitHub API       | < 1 minute       |
-| Silver | silver-scheduler | Hourly      | Bronze populated | 2-5 minutes      |
-| Gold   | gold-scheduler   | Daily (1am) | Silver populated | 1-2 minutes      |
+| Layer  | Job Name         | Schedule        | Dependency       | Typical Duration |
+| ------ | ---------------- | --------------- | ---------------- | ---------------- |
+| Bronze | GitHub Lambda    | Every 5 minutes | GitHub API       | < 1 minute       |
+| Silver | silver-scheduler | Hourly          | Bronze populated | 2-5 minutes      |
+| Gold   | gold-scheduler   | Daily (1am)     | Silver populated | 1-2 minutes      |
 
 ---
 
@@ -274,7 +276,7 @@ Estimated sizes (per environment, per month):
 ## Data Quality Validation
 
 - **Nulls:** Minimal, validated during Silver transform
-- **Duplicates:** Removed by event ID in Silver
+- **Duplicates:** Not explicitly removed; Silver may contain duplicates if GitHub returns them. Downstream queries should handle de-duplication if required.
 - **Timeliness:** Bronze within 1 hour, Silver within 2 hours, Gold within 3 hours
 - **Completeness:** All partitions generated daily for last 2 years
 
@@ -282,7 +284,7 @@ Estimated sizes (per environment, per month):
 
 ## Access Control
 
-All tables use **column-level access** via IAM:
+All tables use **table- and workgroup-level access control** via IAM:
 
 - **Public Access:** Blocked on all S3 buckets
 - **Athena Queries:** Restricted via workgroup IAM policies
