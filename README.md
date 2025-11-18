@@ -242,21 +242,41 @@ All KMS keys feature:
 
 ## CI/CD
 
-The project includes a GitHub Actions workflow that automatically:
+The project includes comprehensive GitHub Actions workflows:
 
-- Runs on pull requests affecting infrastructure code
+### Plan & Validate Workflow (`plan-validate.yml`)
+
+Runs on pull requests affecting infrastructure code:
+
 - Executes pre-commit hooks (formatting, linting, security scans)
 - Authenticates to AWS using OIDC (no long-lived credentials)
 - Validates Terraform configurations
 - Runs security scans with TFLint, Trivy, and Checkov
 - Generates and uploads Terraform plans as artifacts
-- Posts a summary comment on pull requests
+- Posts a summary comment on pull requests with cost estimates
+
+### Drift Detection Workflow (`drift-detection.yml`)
+
+Automatically detects infrastructure drift in all environments:
+
+- Scheduled to run nightly at 02:27 UTC (configurable via cron)
+- Can also be triggered manually via `workflow_dispatch`
+- Checks **dev**, **stage**, and **prod** environments in parallel
+- Opens GitHub issues automatically when drift is detected
+- Labels issues with `drift` and `infra` for easy filtering
+- Each environment is checked independently with its own job
+
+**Drift Detection Example:**
+
+- If `envs/stage` has drift detected → Issue titled "Drift detected in envs/stage" is created
+- If `envs/prod` has no changes → That job passes silently
+- All three environments checked simultaneously (fast feedback)
 
 ### Setting up CI/CD
 
 1. Deploy the IAM OIDC configuration (see Quick Start step 2)
 2. Add the role ARN to GitHub repository secrets as `AWS_OIDC_ROLE_ARN`
-3. The workflow will automatically run on pull requests
+3. The workflows will automatically run on pull requests (plan-validate) and schedule (drift-detection)
 
 ### Testing the OIDC Configuration
 
@@ -286,6 +306,44 @@ aws iam get-role-policy --role-name gh-actions-plan-dev --policy-name <policy-na
 - Role ARN: `arn:aws:iam::ACCOUNT_ID:role/gh-actions-plan-dev`
 - Trust policy includes GitHub repo: `repo:wadie-ejjoufari/terraform-aws-lakehouse:*`
 - Permissions include: `sts:GetCallerIdentity`, `s3:*`, `dynamodb:*`, `cloudwatch:*`, `sns:*`, `budgets:*`, etc.
+
+### Validating Drift Detection
+
+To verify the drift-detection workflow is working for all environments:
+
+#### Option 1: Manual Trigger (Fastest)
+
+1. Go to **Actions** → **drift-detection**
+2. Click **Run workflow** → Select your branch → **Run workflow**
+3. Wait ~2-3 minutes and observe:
+   - Three parallel jobs: `drift-dev`, `drift-stage`, `drift-prod`
+   - ✓ indicates no drift detected
+   - ⚠️ indicates drift was found and an issue was created
+
+#### Option 2: Check Workflow Logs
+
+1. Click into each job (`drift-dev`, `drift-stage`, `drift-prod`)
+2. Expand `Plan (detailed exit code)` step
+3. Look for exit codes:
+   - `exit code 0`: No changes
+   - `exit code 2`: Drift detected (issue will be created)
+   - Other codes: Terraform error
+
+#### Option 3: Verify Issue Creation
+
+When drift is detected:
+
+1. Go to **Issues** tab
+2. Look for issues with:
+   - Title: `Drift detected in envs/<environment>`
+   - Labels: `drift` and `infra`
+   - This confirms the `github-script` action created the issue
+
+#### Option 4: Wait for Scheduled Run
+
+- Default schedule: **02:27 UTC daily** (configurable in `.github/workflows/drift-detection.yml`)
+- Check **Actions** → **drift-detection** for scheduled run history
+- Issues will be created automatically if drift is found
 
 ### Running Terraform Plan & Apply with Local Credentials
 
