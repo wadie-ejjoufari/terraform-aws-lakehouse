@@ -16,78 +16,37 @@
 
 ## Quick Reference
 
-### Makefile Commands
+### Primary Method: Makefile (Recommended)
 
-This project uses a **modular Makefile structure** for better organization. All commands are run from the project root:
+All common operations have Makefile targets. Run from project root:
 
 ```bash
-# View all available commands
-make help
-
-# Quick command reference by category
-make check-tools        # Verify tool installations
-make check-aws          # Check AWS configuration
+make help                 # Show all available commands
+make init-remote-state    # First-time: Bootstrap S3 backend + DynamoDB
+make init-dev             # Initialize dev environment
+make plan-dev             # Plan changes
+make apply-dev            # Apply changes (with post-deployment checks)
+make check-dev            # Full validation suite
+make destroy-dev          # Destroy (with confirmation)
 ```
 
-For detailed Makefile documentation, see [MAKEFILE_STRUCTURE.md](../MAKEFILE_STRUCTURE.md).
+**Why use Makefile?**
 
-### Key Commands
+- Enforces best practices (validation before plan, checks after apply)
+- Pre/post deployment automation
+- Consistent workflow across team
+- Good for CI/CD and new team members
 
-```bash
-# Setup (first time)
-make init-remote-state  # Bootstrap S3 backend
-make init-dev          # Initialize dev environment
+### Alternative: Direct Terraform (For Advanced Users)
 
-# Development workflow
-make fmt               # Format code
-make validate          # Validate configuration
-make plan-dev          # Plan changes
-make apply-dev         # Apply changes
-
-# Validation
-make check-dev         # Full validation
-make security          # Security scans
-
-# Cleanup
-make empty-buckets-dev # Empty buckets before destroy
-make destroy-dev       # Destroy environment
-```
-
-### Direct Terraform Commands
-
-If you prefer direct Terraform commands:
+If you need more control or debugging:
 
 ```bash
-# Format code
-terraform fmt -recursive
-
-# Validate configuration
-cd envs/{env} && terraform validate
-
-# Plan changes
+cd envs/dev
+terraform init -backend-config=backend.hcl
 terraform plan -out=tfplan
-
-# Apply changes
 terraform apply tfplan
-
-# View outputs
 terraform output
-
-# Destroy environment (DANGER - see Destroy Procedures section)
-terraform destroy
-```
-
-### Important ARNs & Resources
-
-```bash
-# View KMS key ARN
-cd envs/dev && terraform output kms_key_arn
-
-# View all bucket names
-terraform output data_lake_buckets
-
-# View log bucket
-terraform output log_bucket_name
 ```
 
 ---
@@ -164,18 +123,7 @@ make setup               # Quick developer setup
 
 For complete Makefile documentation, see [MAKEFILE_STRUCTURE.md](../MAKEFILE_STRUCTURE.md).
 
----
-
 ## Deployment Procedures
-
-> **Tip:** You can use Make commands for a streamlined experience:
->
-> - `make init-remote-state` - Bootstrap remote state
-> - `make init-dev` - Initialize dev environment
-> - `make plan-dev` - Plan changes
-> - `make apply-dev` - Apply changes
->
-> The commands below show the underlying Terraform operations for reference.
 
 ### Initial Setup (First Time Only)
 
@@ -185,105 +133,98 @@ For complete Makefile documentation, see [MAKEFILE_STRUCTURE.md](../MAKEFILE_STR
 
 ```bash
 make init-remote-state
-# Follow prompts to configure terraform.tfvars
-cd global/remote-state && terraform apply
 ```
 
-**Using Terraform directly:**
+This will:
+
+- Copy `terraform.tfvars.example` to `terraform.tfvars`
+- Prompt you to edit with your AWS account ID
+- Initialize and plan the remote state infrastructure
+- You then run `cd global/remote-state && terraform apply` to create buckets/lock table
+
+**Manual Alternative:**
 
 ```bash
-# Navigate to remote state directory
 cd global/remote-state
-
-# Copy and configure tfvars
 cp terraform.tfvars.example terraform.tfvars
-
-# Edit terraform.tfvars with your values:
-# - account_id = "your-aws-account-id"
-# - region = "eu-west-3"
-vim terraform.tfvars
-
-# Initialize and apply
+vim terraform.tfvars  # Set your account_id and region
 terraform init
-terraform plan
 terraform apply
-
-# Note the outputs - you'll need these values
-terraform output
+terraform output  # Note the bucket and table names
 ```
 
 **Expected Outputs:**
 
 - `state_bucket_name`: S3 bucket for Terraform state
 - `dynamodb_table_name`: DynamoDB table for state locking
-- `kms_key_id`: KMS key ID for state encryption
+- `kms_key_id`: KMS key for state encryption
 
-#### Step 2: Setup GitHub OIDC (Optional - for CI/CD)
+#### Step 2: Setup GitHub OIDC (Optional, for CI/CD)
 
 ```bash
 cd global/iam_gh_oidc
-
+cp terraform.tfvars.example terraform.tfvars
+vim terraform.tfvars  # Set your GitHub org/repo
 terraform init
-terraform apply \
-  -var "region=eu-west-3" \
-  -var "repo=your-github-org/your-repo-name" \
-  -var "role_name=gh-actions-plan-dev"
-
-# Add the role ARN to GitHub repository secrets as AWS_OIDC_ROLE_ARN
-terraform output role_arn
+terraform apply
+terraform output  # Save the role ARN for GitHub secrets
 ```
 
 #### Step 3: Configure Environment Backend
 
-```bash
-# Update backend configuration for each environment
-cd envs/dev
-
-# Edit backend.hcl with your account ID
-vim backend.hcl
-# bucket = "tf-state-YOUR_ACCOUNT_ID-eu-west-3"
-```
-
-### Deploying an Environment
-
-#### Deploy Dev Environment
+Each environment needs its account ID in `backend.hcl`:
 
 ```bash
 cd envs/dev
-
-# Copy example tfvars
-cp terraform.tfvars.example terraform.tfvars
-
-# Edit configuration (optional - defaults are sensible)
-vim terraform.tfvars
-
-# Initialize with backend
-terraform init -backend-config=backend.hcl
-
-# Plan and review changes
-terraform plan -out=tfplan
-
-# Apply changes
-terraform apply tfplan
-
-# Verify deployment
-terraform output
+vim backend.hcl  # Update bucket name with YOUR_ACCOUNT_ID
 ```
 
-#### Deploy Stage/Prod Environments
+### Deploy an Environment
+
+#### Deploy Dev (Makefile Method - Recommended)
 
 ```bash
-# Replace 'stage' with 'prod' as needed
-cd envs/stage
+# Initialize dev environment
+make init-dev
 
-cp terraform.tfvars.example terraform.tfvars
-vim terraform.tfvars
+# Plan changes
+make plan-dev
 
+# Review the plan output, then apply
+make apply-dev
+```
+
+The `make apply-dev` command will:
+
+1. Execute Terraform apply
+2. Run post-deployment validation checks
+3. Display outputs
+
+#### Deploy Dev (Direct Terraform)
+
+```bash
+cd envs/dev
 terraform init -backend-config=backend.hcl
 terraform plan -out=tfplan
 terraform apply tfplan
-terraform output
+terraform output  # View bucket names, KMS key ARN, etc.
 ```
+
+#### Deploy Stage or Prod
+
+```bash
+# Makefile method
+make plan-stage    # or make plan-prod
+make apply-stage   # or make apply-prod
+
+# Direct Terraform method
+cd envs/stage  # or envs/prod
+terraform init -backend-config=backend.hcl
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+**Note:** Stage/Prod apply may require confirmation prompts.
 
 ---
 
@@ -291,49 +232,60 @@ terraform output
 
 ### Pre-Deployment Validation
 
+**Using Makefile (Recommended):**
+
 ```bash
-# 1. Format check
+make check-all    # Format, validate, lint, security scan all environments
+make check-dev    # Validation for dev only
+make fmt          # Auto-format all Terraform files
+make validate      # Validate configurations
+make lint         # Run TFLint
+make security     # Run Trivy + Checkov security scans
+```
+
+**Manual/Direct Terraform:**
+
+```bash
+# Format check
 terraform fmt -recursive -check
 
-# 2. Validate all configurations
+# Validate all configurations
 cd envs/dev && terraform validate
 cd ../stage && terraform validate
 cd ../prod && terraform validate
 
-# 3. Run pre-commit hooks
+# Run pre-commit hooks
 cd ../..
 pre-commit run --all-files
 
-# 4. Security scan with Trivy
+# Security scans
 trivy config .
-
-# 5. Policy check with Checkov
 checkov -d . --config-file ci/policies/checkov_custom.yaml
-
-# 6. Linting with TFLint
-cd envs/dev
-tflint --config=../../.tflint.hcl
 ```
 
 ### Post-Deployment Validation
 
+**After `make apply-dev` (automatic):**
+The Makefile automatically runs `make verify-deployment-dev` which checks:
+
+- Terraform outputs present
+- S3 buckets exist
+- KMS encryption configured
+- Bucket versioning enabled
+- Public access blocked
+
+**Manual Post-Deployment Checks:**
+
 ```bash
 cd envs/dev
 
-# 1. Verify outputs are present
+# 1. View outputs
 terraform output
-
-# Expected outputs:
-# - kms_key_arn
-# - kms_key_id
-# - kms_key_alias
-# - data_lake_buckets (raw, silver, gold)
-# - log_bucket_name
 
 # 2. Verify S3 buckets exist
 aws s3 ls | grep dp-dev
 
-# 3. Verify KMS key exists and rotation is enabled
+# 3. Verify KMS key and rotation
 KMS_KEY_ID=$(terraform output -raw kms_key_id)
 aws kms describe-key --key-id $KMS_KEY_ID
 aws kms get-key-rotation-status --key-id $KMS_KEY_ID
@@ -342,14 +294,13 @@ aws kms get-key-rotation-status --key-id $KMS_KEY_ID
 BUCKET_NAME=$(terraform output -json data_lake_buckets | jq -r '.raw')
 aws s3api get-bucket-encryption --bucket $BUCKET_NAME
 
-# 5. Verify versioning is enabled
+# 5. Verify versioning enabled
 aws s3api get-bucket-versioning --bucket $BUCKET_NAME
 
-# 6. Verify public access is blocked
+# 6. Verify public access blocked
 aws s3api get-public-access-block --bucket $BUCKET_NAME
 
-# 7. Test bucket policy (TLS enforcement)
-# This should fail (403) without TLS
+# 7. Test TLS enforcement (this should fail with 403)
 aws s3api head-object --bucket $BUCKET_NAME --key test.txt --no-verify-ssl || echo "✓ TLS enforcement working"
 ```
 
