@@ -77,7 +77,7 @@ This document captures the key architectural decisions and their rationale.
 
 ---
 
-## ADR-005: Athena CTAS for Silver/Gold Transforms (Not Glue Jobs)
+## ADR-005: Athena INSERT INTO for Silver/Gold Transforms (Not Glue Jobs)
 
 **Decision:** Use Athena `INSERT INTO ... SELECT` queries (triggered by Lambda) for transforms instead of Glue Jobs or Step Functions.
 

@@ -137,6 +137,10 @@ resource "aws_glue_catalog_table" "github_events_silver" {
       name = "actor_login"
       type = "string"
     }
+    columns {
+      name = "ingest_dt"
+      type = "date"
+    }
   }
 
   partition_keys {
