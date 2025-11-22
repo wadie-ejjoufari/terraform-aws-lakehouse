@@ -76,65 +76,7 @@ Three tables defined **declaratively in Terraform** (no crawlers):
 
 ## Architecture Diagram
 
-```
-┌────────────────────────────────────┐
-│  GitHub Public Events API          │
-└─────────────────┬──────────────────┘
-                  │
-          EventBridge (5 min)
-                  │
-                  v
-         ┌────────────────┐
-         │ Lambda Ingest  │
-         │ (GitHub → S3)  │
-         └────────┬───────┘
-                  │ JSONL
-                  v
-    ┌─────────────────────────────────────┐
-    │ Bronze: s3://<env>-raw/...          │
-    │ github/events/ingest_dt=YYYY-MM-DD/ │
-    └─────────────────────────────────────┘
-                  │
-          EventBridge (hourly)
-                  │
-                  v
-         ┌────────────────────┐
-         │ Lambda: Silver     │
-         │ (Athena INSERT)    │
-         └────────┬───────────┘
-                  │ Parquet
-                  v
-    ┌────────────────────────────────────────┐
-    │ Silver: s3://<env>-silver/...          │
-    │ github/events_silver/year/month/       │
-    └────────────────────────────────────────┘
-                  │
-          EventBridge (daily)
-                  │
-                  v
-         ┌────────────────────┐
-         │ Lambda: Gold       │
-         │ (Athena INSERT)    │
-         └────────┬───────────┘
-                  │ Parquet
-                  v
-    ┌────────────────────────────────────────┐
-    │ Gold: s3://<env>-gold/...              │
-    │ events_gold_daily/ingest_dt=YYYY-MM-DD/│
-    └────────────────────────────────────────┘
-                  │
-                  v
-        ┌──────────────────┐
-        │ Glue Catalog     │
-        │ (Metadata)       │
-        └─────────┬────────┘
-                  │
-                  v
-        ┌──────────────────┐
-        │ Athena (KMS)     │
-        │ Query Engine     │
-        └──────────────────┘
-```
+![Data Lakehouse Architecture Diagram](../.images/data-lakehouse.diagram.png)
 
 ## Data Flow
 

@@ -24,17 +24,7 @@
 
 ## Architecture at a Glance
 
-```
-GitHub API (Events)
-    ↓ Lambda (5 min polling, $2/mo)
-Bronze Layer (S3 + JSONL)  ← Raw, immutable data
-    ↓ Athena INSERT (hourly, $0.01/query)
-Silver Layer (S3 + Parquet) ← Cleaned, typed, partitioned by year/month
-    ↓ Athena INSERT (daily)
-Gold Layer (S3 + Parquet)   ← Aggregated analytics, partitioned by date
-    ↓
-Athena Workgroup (KMS encrypted) ← SQL queries for BI/dashboards
-```
+![Data Lakehouse Architecture Diagram](.images/data-lakehouse.diagram.png)
 
 **Key Design Decisions:**
 
